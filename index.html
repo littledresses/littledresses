@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>蒔光衣櫥｜寶寶禮服・寫真租借所</title>
+  <meta name="description" content="蒔光衣櫥 little dresses — 寶寶禮服、兒童洋裝與寫真服裝租借。Little Dresses, Precious Moments. 小小的洋裝，珍貴的時光。">
+  <meta property="og:title" content="蒔光衣櫥｜寶寶禮服・寫真租借所">
+  <meta property="og:description" content="Little Dresses, Precious Moments. 小小的洋裝，珍貴的時光。">
+  <meta property="og:image" content="logo.jpg">
+  <meta name="theme-color" content="#f8f3ec">
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="demo-banner" class="demo-banner" hidden>示範模式：目前顯示的是範例商品，訂單不會真的送出。</div>
+
+  <header class="site-header">
+    <a class="brand" href="./">
+      <span class="brand-text">
+        <span class="brand-name">蒔光衣櫥</span>
+        <span class="brand-en">little dresses</span>
+      </span>
+    </a>
+    <nav class="header-actions">
+      <button type="button" class="link-btn" data-open="lookup">查詢紀錄</button>
+      <button type="button" class="cart-btn" data-open="cart">
+        租借清單<span class="cart-count" id="cart-count">0</span>
+      </button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <img class="hero-logo" src="logo.jpg" alt="蒔光衣櫥 little dresses" onerror="this.remove()">
+      <h1 class="hero-zh">小小的洋裝，珍貴的時光。</h1>
+      <ol class="steps">
+        <li><b>1</b>挑選衣服</li>
+        <li><b>2</b>選擇租借日期</li>
+        <li><b>3</b>匯款完成預約</li>
+      </ol>
+    </section>
+
+    <section class="grid" id="grid" aria-live="polite"><p class="loading">衣服準備中…</p></section>
+  </main>
+
+  <footer class="site-footer">
+    <p class="footer-en">Little Dresses, Precious Moments.</p>
+    <p>© 蒔光衣櫥 little dresses ・ <button type="button" class="link-btn" data-open="notice">租借須知</button></p>
+  </footer>
+
+  <dialog id="dlg-product" class="dlg"></dialog>
+  <dialog id="dlg-cart" class="dlg dlg-side"></dialog>
+  <dialog id="dlg-lookup" class="dlg"></dialog>
+  <dialog id="dlg-notice" class="dlg"></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
