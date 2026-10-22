@@ -52,11 +52,14 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; min-width: 0; }
-.brand-logo { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
-.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
-.brand-name { font-family: var(--serif); font-size: 19px; letter-spacing: .12em; }
-.brand-en { font-family: var(--latin); font-style: italic; font-size: 13px; color: var(--muted); letter-spacing: .08em; }
+.brand { display: flex; align-items: center; text-decoration: none; color: inherit; }
+/* 左上只放小洋裝圖示：大 logo 還在畫面上時隱藏，捲過之後才淡入 */
+.brand-logo {
+  width: 44px; height: 44px; border-radius: 50%; object-fit: cover;
+  box-shadow: 0 0 0 1px var(--line);
+  transition: opacity .35s ease, transform .35s ease, visibility .35s;
+}
+.site-header:not(.show-mark) .brand-logo { opacity: 0; transform: scale(.6); visibility: hidden; }
 .header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .link-btn { background: none; border: 0; padding: 6px 8px; color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rose); }
 .cart-btn {
@@ -76,18 +79,43 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .hero { text-align: center; padding: 28px 16px 8px; }
 .hero-logo { width: min(300px, 78vw); margin: 0 auto 4px; border-radius: 50%; box-shadow: 0 8px 30px rgba(94, 74, 62, .10); }
 .hero-en { font-family: var(--latin); font-style: italic; font-size: clamp(22px, 5vw, 30px); color: var(--ink-soft); margin: 0; letter-spacing: .02em; }
-.hero-zh { font-size: clamp(18px, 4vw, 22px); letter-spacing: .2em; margin: 2px 0 6px; font-weight: 500; }
+/* 字距會加在最後一個字後面，用 padding-left 補回同樣寬度，文字才會跟 logo 對齊置中 */
+.hero-zh { font-size: clamp(18px, 4vw, 22px); letter-spacing: .2em; padding-left: .2em; margin: 2px 0 6px; font-weight: 500; }
 .hero-sub { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: .3em; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .hero-sub::before, .hero-sub::after { content: ""; width: 28px; height: 1px; background: var(--gold); opacity: .6; }
-.steps { list-style: none; display: flex; justify-content: center; gap: 8px; padding: 0; margin: 20px auto 0; flex-wrap: wrap; }
-.steps li { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px 4px 4px; font-size: 13px; color: var(--ink-soft); }
-.steps b { width: 22px; height: 22px; border-radius: 50%; background: var(--rose-soft); color: var(--rose-deep); display: grid; place-items: center; font-size: 12px; }
+/* 租借流程：細斜體數字＋步驟名稱，中間用 logo 的金色小星星隔開 */
+.steps { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); max-width: 380px; padding: 0; margin: 22px auto 0; }
+.steps li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; font-family: var(--serif); font-size: 13px; letter-spacing: .08em; color: var(--ink-soft); }
+.steps li + li::before { content: "✦"; position: absolute; left: 0; top: 7px; transform: translateX(-50%); font-size: 9px; color: var(--gold); opacity: .8; }
+.steps b {
+  font-family: var(--latin); font-style: italic; font-size: 24px; font-weight: 500; line-height: 1.1;
+  font-variant-numeric: lining-nums; letter-spacing: .04em; color: var(--rose-deep);
+}
 
 /* Filters + grid */
-.filters { display: flex; gap: 8px; overflow-x: auto; padding: 18px 16px 4px; max-width: 1080px; margin: 0 auto; scrollbar-width: none; }
-.filters::-webkit-scrollbar { display: none; }
-.chip { flex-shrink: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 14px; color: var(--ink-soft); font-size: 14px; }
-.chip[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+/* 尺寸篩選：仿 logo 的「— little dresses —」細線標題＋圓形尺寸章 */
+.filters { max-width: 1080px; margin: 0 auto; padding: 30px 16px 0; text-align: center; }
+.filters-label {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  font-family: var(--latin); font-style: italic; font-size: 15px; color: var(--muted); letter-spacing: .14em;
+}
+.filters-label::before, .filters-label::after { content: ""; width: 36px; height: 1px; background: var(--gold); opacity: .6; }
+.filters-label b { font-family: var(--serif); font-style: normal; font-weight: 500; font-size: 13px; color: var(--ink-soft); letter-spacing: .3em; margin-right: -.3em; }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 14px; }
+.chip {
+  width: 52px; height: 52px; border-radius: 50%; padding: 0;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  font-family: var(--latin); font-size: 19px; font-weight: 500; line-height: 1; font-variant-numeric: lining-nums;
+  transition: background .2s, border-color .2s, color .2s, box-shadow .2s;
+}
+.chip.chip-all { font-family: var(--serif); font-size: 13px; letter-spacing: .1em; }
+.chip:hover { border-color: var(--rose); }
+.chip[aria-pressed="true"] {
+  background: var(--rose-soft); border-color: var(--rose-deep); color: var(--rose-deep);
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--rose);
+}
+.filters:not([hidden]) + .grid { padding-top: 22px; }
 
 .grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
@@ -148,10 +176,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .thumbs img { width: 100%; height: 100%; object-fit: cover; }
 .p-brand { font-family: var(--serif); font-size: 14px; color: var(--muted); margin: 14px 0 2px; letter-spacing: .12em; }
 .p-title { font-size: 21px; margin: 0 0 8px; }
-.sizes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.size-chip { min-width: 72px; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 8px 14px; display: flex; flex-direction: column; align-items: center; font-size: 16px; font-weight: 500; line-height: 1.3; }
-.size-chip small { font-size: 11px; color: var(--muted); font-weight: 400; }
-.size-chip[aria-pressed="true"] { border-color: var(--rose-deep); background: var(--rose-soft); color: var(--rose-deep); box-shadow: 0 0 0 1px var(--rose-deep) inset; }
+/* 商品頁的尺寸按鈕沿用首頁的圓形 .chip；彈窗底色是 --surface，外環間隔改用同色 */
+.sizes { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.dlg .chip[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--surface), 0 0 0 4px var(--rose); }
 .line-brand { font-family: var(--serif); font-size: 12px; color: var(--muted); letter-spacing: .1em; }
 .p-meta { color: var(--muted); font-size: 13px; margin: 2px 0 10px; }
 .p-desc { white-space: pre-line; color: var(--ink-soft); margin: 0 0 12px; }

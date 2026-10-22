@@ -32,6 +32,7 @@
     start: store.get('sg_start', ''),
     form: store.get('sg_form', {}),
     cartStep: 'cart',
+    size: '',
   };
   const save = () => { store.set('sg_cart', state.cart); store.set('sg_start', state.start); store.set('sg_form', state.form); };
 
@@ -122,11 +123,26 @@
   }, true);
 
   // ───────── 商品列表 ─────────
+  // 依尺寸篩選：只列出有這個尺寸的款式，點進去時直接選好該尺寸
+  const pieceOfSize = (st, size) => st.pieces.find(p => String(p.size) === size);
+  function renderFilters() {
+    const el = $('#filters');
+    const sizes = [...new Set(products.map(p => String(p.size || '')).filter(Boolean))]
+      .sort((a, b) => sizeNum(a) - sizeNum(b) || a.localeCompare(b));
+    if (state.size && !sizes.includes(state.size)) state.size = '';
+    el.hidden = sizes.length < 2;
+    el.innerHTML = '<p class="filters-label"><span>Size</span><b>依尺寸挑選</b></p><div class="chips">'
+      + ['', ...sizes].map(s => `<button type="button" class="chip${s ? '' : ' chip-all'}" data-filter="${esc(s)}" aria-pressed="${s === state.size}">${s ? esc(s) : '全部'}</button>`).join('')
+      + '</div>';
+  }
+
   function renderGrid() {
     const grid = $('#grid');
     if (!styles.length) { grid.innerHTML = '<p class="empty">目前沒有衣服，敬請期待 ✦</p>'; return; }
-    grid.innerHTML = styles.map(st => `
-      <button type="button" class="card" data-product="${esc(st.key)}">
+    const list = state.size ? styles.filter(st => pieceOfSize(st, state.size)) : styles;
+    if (!list.length) { grid.innerHTML = `<p class="empty">目前沒有 ${esc(state.size)} 號的衣服</p>`; return; }
+    grid.innerHTML = list.map(st => `
+      <button type="button" class="card" data-product="${esc(st.key)}"${state.size ? ` data-piece="${esc(pieceOfSize(st, state.size).id)}"` : ''}>
         <div class="card-img">${imgTag(styleImg(st), st.name, st.key)}${st.pieces.some(p => state.cart.includes(p.id)) ? '<span class="card-badge">已加入</span>' : ''}</div>
         <div class="card-body">
           ${st.brand ? `<span class="card-brand">${esc(st.brand)}</span>` : ''}
@@ -206,7 +222,7 @@
         ${st.brand ? `<p class="p-brand">${esc(st.brand)}</p>` : ''}
         <h3 class="p-title">${esc(st.name)}</h3>
         <h3 class="sec-title">選擇尺寸</h3>
-        <div class="sizes">${st.pieces.map(p => `<button type="button" class="size-chip" data-size="${esc(p.id)}" aria-pressed="${p === piece}">${esc(p.size || p.id)}</button>`).join('')}</div>
+        <div class="sizes">${st.pieces.map(p => `<button type="button" class="chip" data-size="${esc(p.id)}" aria-pressed="${p === piece}">${esc(p.size || p.id)}</button>`).join('')}</div>
         <div id="p-detail"></div>
       </div>
       <div class="dlg-foot">
@@ -222,31 +238,33 @@
         btn.textContent = '請先選擇尺寸';
         return;
       }
-      btn.disabled = false;
       btn.dataset.id = piece.id;
-      btn.textContent = state.cart.includes(piece.id) ? '已在清單・前往結帳' : '加入租借清單';
+      // 租借清單不能改日期，所以日期在商品頁就要選好；清單裡已有衣服時，日期固定為清單的期間
+      const locked = !!state.start && cartItems().some(x => x.id !== piece.id);
       el.innerHTML = `
         <div class="price-row" style="margin-top:14px">
           <div class="rent"><span>租金（每次）</span><b>${money(piece.rent)}</b></div>
-          <div><span>押金（歸還後退還）</span><b>${money(piece.deposit)}</b></div>
+          <div><span>押金</span><b>${money(piece.deposit)}</b></div>
         </div>
-        <h3 class="sec-title">查看可租借日期</h3>
-        <p class="hint">點選起日，迄日自動為起日＋${shop.rentalDays} 天。</p>
+        <h3 class="sec-title">選擇租借日期</h3>
+        <p class="hint">${locked ? '同一張訂單的租借期間相同，已固定為租借清單的日期。要換日期，請先移除清單裡的衣服。' : `點選起日，迄日自動為起日＋${shop.rentalDays} 天。`}</p>
         <div id="p-cal"></div>
         <div id="p-status"></div>`;
       const p = piece;
       const showStatus = () => {
         const box = $('#p-status', dlg.product);
+        const free = !!state.start && canStart([p.id], state.start);
+        if (state.cart.includes(p.id)) { btn.disabled = false; btn.textContent = '已在清單・前往結帳'; }
+        else { btn.disabled = !free; btn.textContent = free ? '加入租借清單' : state.start ? '這段期間無法租借' : '請先選擇租借日期'; }
         if (!state.start) { box.innerHTML = ''; return; }
-        const free = canStart([p.id], state.start);
         box.innerHTML = `<div class="range-box">${rangeText(state.start)}
-          <div class="status-line ${free ? 'ok' : 'bad'}">${free ? '✓ 這段期間可以租借' : '✕ 這個尺寸在這段期間已被預約，請換日期或尺寸'}</div></div>`;
+          <div class="status-line ${free ? 'ok' : 'bad'}">${free ? '✓ 這段期間可以租借' : locked ? '✕ 這個尺寸在租借清單的期間已被預約' : '✕ 這個尺寸在這段期間已被預約，請換日期或尺寸'}</div></div>`;
       };
       calendar($('#p-cal', dlg.product), {
-        isSelectable: d => canStart([p.id], d),
+        isSelectable: d => locked ? d === state.start : canStart([p.id], d),
         isTaken: d => !isFree(p.id, d),
-        selected: state.start && canStart([p.id], state.start) ? state.start : '',
-        onPick: d => { state.start = d; save(); showStatus(); },
+        selected: state.start && (locked || canStart([p.id], state.start)) ? state.start : '',
+        onPick: d => { if (locked) return; state.start = d; save(); showStatus(); },
       });
       showStatus();
     };
@@ -297,7 +315,7 @@
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${state.start ? `${D.pretty(state.start)} ～ ${D.pretty(endOf(state.start))}` : '尚未選擇'}</dd></div>
       <div><dt>租金（${items.length} 件）</dt><dd>${money(rent)}</dd></div>
-      <div><dt>押金（歸還後退還）</dt><dd>${money(dep)}</dd></div>
+      <div><dt>押金</dt><dd>${money(dep)}</dd></div>
       ${ship ? `<div><dt>順豐運費</dt><dd>${money(ship)}</dd></div>` : ''}
       <div class="total"><dt>應付總額</dt><dd>${money(rent + dep + ship)}</dd></div>
     </dl>`;
@@ -326,26 +344,17 @@
                 <b>${esc(p.name)}</b>
                 <span>${esc(p.size ? '尺寸 ' + p.size : p.id)}</span>
                 <span>租金 ${money(p.rent)}・押金 ${money(p.deposit)}</span>
-                ${bad ? '<em>這件在所選期間已被預約，請換日期或移除</em>' : ''}
+                ${bad ? '<em>這件在所選期間已被預約，請移除</em>' : ''}
               </div>
               <button type="button" class="icon-btn" data-remove="${esc(p.id)}">移除</button>
             </div>`;
           }).join('')}
-          <h3 class="sec-title">選擇租借起日</h3>
-          <p class="hint">迄日自動為起日＋${shop.rentalDays} 天。${items.length > 1 ? '只會顯示清單中每件衣服都能租借的日期。' : ''}</p>
-          <div id="cart-cal"></div>
-          ${state.start ? `<div class="range-box">${rangeText(state.start)}</div>` : ''}
+          ${state.start ? '' : '<p class="hint">還沒有選擇租借日期，請回到商品頁選好日期。</p>'}
           ${summaryHTML(items)}
         </div>
         <div class="dlg-foot">
-          <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '下一步：填寫收件資料' : '請先選擇租借起日'}</button>
+          <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '確認，填寫收件資料' : state.start ? '有衣服在這段期間無法租借' : '請先在商品頁選擇租借日期'}</button>
         </div>`;
-      calendar($('#cart-cal', dlg.cart), {
-        isSelectable: d => canStart(ids, d),
-        isTaken: d => ids.some(id => !isFree(id, d)),
-        selected: allOk ? state.start : '',
-        onPick: d => { state.start = d; save(); renderCart(); },
-      });
       return;
     }
 
@@ -416,7 +425,7 @@
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${D.pretty(o.startDate)} ～ ${D.pretty(o.endDate)}</dd></div>
       ${o.items.map(p => `<div><dt>${esc(fullName(p))}${p.size ? `（${esc(p.size)}）` : ''}</dt><dd>${p.rent != null ? money(p.rent) : ''}</dd></div>`).join('')}
-      <div><dt>押金（歸還後退還）</dt><dd>${money(o.depositTotal)}</dd></div>
+      <div><dt>押金</dt><dd>${money(o.depositTotal)}</dd></div>
       ${o.shipping ? `<div><dt>順豐運費</dt><dd>${money(o.shipping)}</dd></div>` : ''}
       <div class="total"><dt>應付總額</dt><dd>${money(o.total)}</dd></div>
     </dl>`;
@@ -584,7 +593,7 @@
   document.addEventListener('click', e => {
     const t = e.target;
     if (t.tagName === 'DIALOG') { t.close(); return; } // 點背景關閉
-    const el = t.closest('[data-close],[data-open],[data-product],[data-remove],[data-copy],#p-add,#to-form,#to-cart');
+    const el = t.closest('[data-close],[data-open],[data-filter],[data-product],[data-remove],[data-copy],#p-add,#to-form,#to-cart');
     if (!el) return;
     if (el.matches('[data-close]')) { el.closest('dialog').close(); return; }
     if (el.matches('[data-open]')) {
@@ -592,7 +601,8 @@
       ({ cart: openCart, lookup: openLookup, notice: openNotice })[el.dataset.open]();
       return;
     }
-    if (el.matches('[data-product]')) { openProduct(el.dataset.product); return; }
+    if (el.matches('[data-filter]')) { state.size = el.dataset.filter; renderFilters(); renderGrid(); return; }
+    if (el.matches('[data-product]')) { openProduct(el.dataset.product, el.dataset.piece); return; }
     if (el.matches('[data-remove]')) {
       state.cart = state.cart.filter(id => id !== el.dataset.remove);
       save(); updateCount(); renderGrid(); renderCart();
@@ -612,8 +622,19 @@
   });
 
   // ───────── 啟動 ─────────
+  // 大 logo 有一半以上捲到頁首後面時，頁首才顯示小洋裝圖示
+  // （不等完全捲出畫面，商品少、頁面短的時候大 logo 可能永遠捲不完）
+  function watchHeroLogo() {
+    const header = $('.site-header');
+    const hero = $('.hero-logo');
+    if (!hero || !('IntersectionObserver' in window)) { header.classList.add('show-mark'); return; }
+    new IntersectionObserver(([en]) => header.classList.toggle('show-mark', en.intersectionRatio < .5),
+      { rootMargin: `-${header.offsetHeight}px 0px 0px 0px`, threshold: [0, .5, 1] }).observe(hero);
+  }
+
   async function init() {
     if (DEMO) $('#demo-banner').hidden = false;
+    watchHeroLogo();
     try {
       await loadCatalog();
     } catch (e) {
@@ -621,6 +642,7 @@
       $('#grid').innerHTML = '<p class="error">衣服載入失敗，請稍後重新整理頁面。</p>';
       return;
     }
+    renderFilters();
     renderGrid();
     updateCount();
     const item = new URLSearchParams(location.search).get('item');

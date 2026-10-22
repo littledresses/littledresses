@@ -14,17 +14,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <div id="demo-banner" class="demo-banner" hidden>示範模式：目前顯示的是範例商品，訂單不會真的送出。</div>
 
   <header class="site-header">
-    <a class="brand" href="./">
-      <span class="brand-text">
-        <span class="brand-name">蒔光衣櫥</span>
-        <span class="brand-en">little dresses</span>
-      </span>
+    <a class="brand" href="./" aria-label="蒔光衣櫥 little dresses">
+      <img class="brand-logo" src="mark.png" alt="">
     </a>
     <nav class="header-actions">
       <button type="button" class="link-btn" data-open="lookup">查詢紀錄</button>
@@ -37,14 +34,15 @@
   <main>
     <section class="hero">
       <img class="hero-logo" src="logo.jpg" alt="蒔光衣櫥 little dresses" onerror="this.remove()">
-      <h1 class="hero-zh">小小的洋裝，珍貴的時光。</h1>
+      <h1 class="hero-zh">小小的洋裝，珍貴的時光</h1>
       <ol class="steps">
-        <li><b>1</b>挑選衣服</li>
-        <li><b>2</b>選擇租借日期</li>
-        <li><b>3</b>匯款完成預約</li>
+        <li><b>01</b>挑選衣服</li>
+        <li><b>02</b>選擇租借日期</li>
+        <li><b>03</b>匯款完成預約</li>
       </ol>
     </section>
 
+    <nav class="filters" id="filters" aria-label="依尺寸篩選" hidden></nav>
     <section class="grid" id="grid" aria-live="polite"><p class="loading">衣服準備中…</p></section>
   </main>
 
@@ -60,6 +58,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
