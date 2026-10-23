@@ -31,10 +31,17 @@
     cart: store.get('sg_cart', []),
     start: store.get('sg_start', ''),
     form: store.get('sg_form', {}),
+    // 在這台裝置下單的訂單 [{ no, phone }]，新的在前；查詢紀錄時自動列出（只查詢過的不記）
+    orders: store.get('sg_orders', []),
     cartStep: 'cart',
     size: '',
   };
-  const save = () => { store.set('sg_cart', state.cart); store.set('sg_start', state.start); store.set('sg_form', state.form); };
+  const save = () => { store.set('sg_cart', state.cart); store.set('sg_start', state.start); store.set('sg_form', state.form); store.set('sg_orders', state.orders); };
+  const sameNo = (a, b) => String(a).toUpperCase().replace(/[^0-9A-Z]/g, '') === String(b).toUpperCase().replace(/[^0-9A-Z]/g, '');
+  function rememberOrder(no, phone) {
+    state.orders = [{ no, phone }].concat(state.orders.filter(o => !sameNo(o.no, no))).slice(0, 20);
+    save();
+  }
 
   const dlg = {
     product: $('#dlg-product'),
@@ -154,6 +161,7 @@
   function updateCount(bump) {
     const el = $('#cart-count');
     el.textContent = state.cart.length;
+    el.classList.toggle('is-empty', !state.cart.length);
     if (bump) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
   }
 
@@ -407,7 +415,7 @@
       state.cart = [];
       state.start = '';
       state.form = { name: v('name'), phone, address: v('address') };
-      save();
+      rememberOrder(r.order.no, phone);
       updateCount();
       renderDone(r, phone);
       loadCatalog().then(renderGrid).catch(() => {});
@@ -478,7 +486,7 @@
           <div class="check-icon">✓</div>
           <p class="hint">訂單編號</p>
           <p class="order-no">${esc(o.no)}</p>
-          <p class="hint">建議截圖保存。之後可以用電話號碼查詢租借紀錄。</p>
+          <p class="hint">請截圖保存。查詢租借紀錄時需要「電話＋訂單編號」。</p>
         </div>
         ${orderSummaryHTML(o)}
         ${paymentHTML(o, r.bank, phone)}
@@ -515,29 +523,51 @@
   }
 
   // ───────── 查詢租借紀錄 ─────────
+  // 要「電話＋訂單編號」才查得到；在這台裝置下單的訂單會自動列出
   function openLookup() {
+    const saved = state.orders.length;
     dlg.lookup.innerHTML = `
       <div class="dlg-head"><h2>查詢租借紀錄</h2><button type="button" class="dlg-close" data-close aria-label="關閉">×</button></div>
       <div class="dlg-body">
+        ${saved ? '<div id="saved-result"><p class="hint">讀取中…</p></div><h3 class="sec-title">查詢其他訂單</h3>' : ''}
         <form class="form" id="lookup-form">
           <label>下單時填寫的電話<input name="phone" type="tel" required inputmode="tel" autocomplete="tel" placeholder="09xx-xxx-xxx" value="${esc(state.form.phone)}"></label>
+          <label>訂單編號<input name="no" required autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="例如 SG1023-K7QF"><small>預約成功畫面上的編號。忘記的話請私訊我們。</small></label>
           <button type="submit" class="btn primary">查詢</button>
         </form>
         <div id="lookup-result"></div>
       </div>`;
     showModal(dlg.lookup);
+    if (saved) loadSavedOrders();
+  }
+
+  async function loadSavedOrders() {
+    const out = $('#saved-result', dlg.lookup);
+    const results = await Promise.all(state.orders.map(s =>
+      apiPost({ action: 'lookup', phone: s.phone, no: s.no }).then(r => ({ s, r })).catch(() => ({ s, r: null }))));
+    // 後台查不到（例如訂單被刪掉）的就不再記住；網路錯誤的先留著
+    const gone = results.filter(x => x.r && !x.r.ok).map(x => x.s);
+    if (gone.length) { state.orders = state.orders.filter(s => !gone.includes(s)); save(); }
+    const ok = results.filter(x => x.r && x.r.ok);
+    if (!out) return;
+    out.innerHTML = ok.length
+      ? ok.map(x => recordHTML(x.r.orders[0], x.r.bank, x.s.phone)).join('')
+      : `<p class="hint">${results.some(x => !x.r) ? '網路不穩，請稍後再試。' : '目前沒有可顯示的訂單。'}</p>`;
   }
 
   async function submitLookup(form) {
-    const phone = String(new FormData(form).get('phone') || '').trim();
+    const fd = new FormData(form);
+    const phone = String(fd.get('phone') || '').trim();
+    const no = String(fd.get('no') || '').trim().toUpperCase();
     const out = $('#lookup-result', dlg.lookup);
     if (phone.replace(/\D/g, '').length < 8) { out.innerHTML = '<p class="form-error" style="margin-top:12px">請輸入正確的電話號碼</p>'; return; }
+    if (!/[0-9A-Z]{4}/.test(no.replace(/[^0-9A-Z]/g, ''))) { out.innerHTML = '<p class="form-error" style="margin-top:12px">請輸入訂單編號</p>'; return; }
     out.innerHTML = '<p class="hint" style="margin-top:12px">查詢中…</p>';
     try {
-      const r = await apiGet({ action: 'lookup', phone });
+      const r = await apiPost({ action: 'lookup', phone, no });
       if (!r.ok) throw new Error(r.error);
-      out.innerHTML = `<p class="hint" style="margin-top:16px">共 ${r.orders.length} 筆租借紀錄</p>`
-        + r.orders.map(o => recordHTML(o, r.bank, phone)).join('');
+      const o = r.orders[0];
+      out.innerHTML = '<p class="hint" style="margin-top:16px">查詢成功</p>' + recordHTML(o, r.bank, phone);
     } catch (e) {
       out.innerHTML = `<p class="form-error" style="margin-top:12px">${esc(e.message || '查詢失敗，請稍後再試')}</p>`;
     }
@@ -656,11 +686,11 @@
   const demoOrders = (() => {
     const t = D.today();
     return [{
-      no: 'SG' + D.add(t, -20).slice(2).replace(/-/g, '') + '001', status: '已歸還', name: '陳小美', phone: '0912345678',
+      no: 'SG' + D.add(t, -20).slice(5).replace(/-/g, '') + '-K7QF', status: '已歸還', name: '陳小美', phone: '0912345678',
       startDate: D.add(t, -14), endDate: D.add(t, -9), items: [{ id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80' }],
       total: 10600, addon: '', remit: { name: '陳小美', bank: '國泰世華', date: D.add(t, -19), amount: 10600, last5: '24680', confirmed: true },
     }, {
-      no: 'SG' + D.add(t, -2).slice(2).replace(/-/g, '') + '001', status: '已付款', name: '陳小美', phone: '0912345678',
+      no: 'SG' + D.add(t, -2).slice(5).replace(/-/g, '') + '-M3XA', status: '已付款', name: '陳小美', phone: '0912345678',
       startDate: D.add(t, 40), endDate: D.add(t, 45), items: [{ id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90' }],
       total: 10750, addon: '珍珠髮箍 ×1（加購 NT$ 150，已含在應付總額內）\n白色小皮鞋 15cm 借用', remit: { name: '陳小美', bank: '中國信託', date: D.add(t, -1), amount: 10750, last5: '13579', confirmed: true },
     }];
@@ -701,7 +731,7 @@
       const rentTotal = items.reduce((a, p) => a + p.rent, 0);
       const depositTotal = items.reduce((a, p) => a + p.deposit, 0);
       const order = {
-        no: 'SG' + t.slice(2).replace(/-/g, '') + String(demoOrders.length + 1).padStart(3, '0'),
+        no: 'SG' + t.slice(5).replace(/-/g, '') + '-' + Array.from({ length: 4 }, () => '23456789ABCDEFGHJKMNPQRSTUVWXYZ'[Math.floor(Math.random() * 31)]).join(''),
         status: '待付款', startDate: req.startDate, endDate: endOf(req.startDate),
         items: items.map(p => ({ id: p.id, brand: p.brand, name: p.name, size: p.size, rent: p.rent, deposit: p.deposit })),
         rentTotal, depositTotal, shipping: 0, total: rentTotal + depositTotal,
@@ -713,14 +743,21 @@
     }
     const digits = x => String(x || '').replace(/\D/g, '');
     if (req.action === 'report') {
-      const o = demoOrders.find(x => x.no === req.orderNo && digits(x.phone) === digits(req.phone));
+      const o = demoOrders.find(x => sameNo(x.no, req.orderNo) && digits(x.phone) === digits(req.phone));
       if (!o) return { ok: false, error: '查不到這筆訂單' };
       o.remit = Object.assign({ confirmed: false }, req.remit);
       return { ok: true };
     }
-    const list = demoOrders.filter(x => digits(x.phone) === digits(req.phone)).slice().reverse();
-    if (!list.length) return { ok: false, error: '查不到這支電話的租借紀錄。（示範模式可以試試 0912345678）' };
-    return { ok: true, orders: list, bank: DEMO_BANK };
+    // 跟正式後台一樣：要電話＋訂單編號都對，姓名、電話遮掉一部分
+    const o = demoOrders.find(x => sameNo(x.no, req.no) && digits(x.phone) === digits(req.phone));
+    if (!o) return { ok: false, error: `查不到這筆訂單，請確認訂單編號與手機號碼。（示範模式可以試試 0912345678＋${demoOrders[1].no}）` };
+    const mask = n => n.length <= 1 ? n : n.length === 2 ? n[0] + '*' : n[0] + '*'.repeat(n.length - 2) + n[n.length - 1];
+    const ph = digits(o.phone);
+    const view = Object.assign({}, o, {
+      name: mask(o.name), phone: ph.slice(0, 4) + '-***-' + ph.slice(-3),
+      remit: o.remit && Object.assign({}, o.remit, { name: mask(o.remit.name) }),
+    });
+    return { ok: true, orders: [view], bank: DEMO_BANK };
   }
 
   init();

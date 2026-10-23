@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
   <div id="demo-banner" class="demo-banner" hidden>示範模式：目前顯示的是範例商品，訂單不會真的送出。</div>
@@ -24,9 +24,9 @@
       <img class="brand-logo" src="mark.png" alt="">
     </a>
     <nav class="header-actions">
-      <button type="button" class="link-btn" data-open="lookup">查詢紀錄</button>
-      <button type="button" class="cart-btn" data-open="cart">
-        租借清單<span class="cart-count" id="cart-count">0</span>
+      <button type="button" class="nav-btn" data-open="lookup">查詢紀錄</button>
+      <button type="button" class="nav-btn" data-open="cart">
+        租借清單<span class="cart-count is-empty" id="cart-count">0</span>
       </button>
     </nav>
   </header>
@@ -34,6 +34,7 @@
   <main>
     <section class="hero">
       <img class="hero-logo" src="logo.jpg" alt="蒔光衣櫥 little dresses" onerror="this.remove()">
+      <p class="hero-en">Little Dresses, Precious Moments.</p>
       <h1 class="hero-zh">小小的洋裝，珍貴的時光</h1>
       <ol class="steps">
         <li><b>01</b>挑選衣服</li>
@@ -58,6 +59,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="config.js"></script>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>
