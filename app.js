@@ -35,6 +35,7 @@
     orders: store.get('sg_orders', []),
     cartStep: 'cart',
     size: '',
+    coupon: null, // 套用成功的優惠碼 { code, label, discount }；清單有變動就清掉，下單時後台會再檢查一次
   };
   const save = () => { store.set('sg_cart', state.cart); store.set('sg_start', state.start); store.set('sg_form', state.form); store.set('sg_orders', state.orders); };
   const sameNo = (a, b) => String(a).toUpperCase().replace(/[^0-9A-Z]/g, '') === String(b).toUpperCase().replace(/[^0-9A-Z]/g, '');
@@ -314,6 +315,7 @@
   function addToCart(id) {
     if (!state.cart.includes(id)) {
       state.cart.push(id);
+      state.coupon = null;
       save();
       updateCount(true);
       renderGrid();
@@ -332,17 +334,61 @@
     showModal(dlg.cart);
   }
 
-  function summaryHTML(items) {
+  function summaryHTML(items, coupon) {
     const rent = items.reduce((a, p) => a + p.rent, 0);
     const dep = items.reduce((a, p) => a + p.deposit, 0);
     const ship = shop.shippingFee || 0;
+    const off = coupon ? coupon.discount : 0;
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${state.start ? `${D.pretty(state.start)} ～ ${D.pretty(endOf(state.start))}` : '尚未選擇'}</dd></div>
       <div><dt>租金（${items.length} 件）</dt><dd>${money(rent)}</dd></div>
+      ${off ? `<div class="discount"><dt>優惠碼 ${esc(coupon.code)}</dt><dd>− ${money(off)}</dd></div>` : ''}
       <div><dt>押金</dt><dd>${money(dep)}</dd></div>
       ${ship ? `<div><dt>順豐運費</dt><dd>${money(ship)}</dd></div>` : ''}
-      <div class="total"><dt>應付總額</dt><dd>${money(rent + dep + ship)}</dd></div>
+      <div class="total"><dt>應付總額</dt><dd>${money(rent - off + dep + ship)}</dd></div>
     </dl>`;
+  }
+
+  // ───────── 優惠碼 ─────────
+  function couponBoxHTML() {
+    const c = state.coupon;
+    return c
+      ? `<div class="coupon-applied"><span>✓ 已套用 <b>${esc(c.code)}</b>：${esc(c.label)}${/^折 /.test(c.label) ? '' : `，折抵 ${money(c.discount)}`}</span><button type="button" class="link-btn" id="remove-coupon">移除</button></div>
+        ${c.personal ? '<p class="hint coupon-note">這是個人專屬優惠碼，送出訂單時會核對電話。</p>' : ''}`
+      : `<div class="coupon-row">
+          <input name="coupon" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="30" placeholder="請輸入優惠碼">
+          <button type="button" class="btn" id="apply-coupon">套用</button>
+        </div>
+        <p class="form-error coupon-error" id="coupon-error" hidden></p>`;
+  }
+
+  function refreshCoupon() {
+    const items = cartItems();
+    $('#coupon-box', dlg.cart).innerHTML = couponBoxHTML();
+    $('#order-summary', dlg.cart).innerHTML = summaryHTML(items, state.coupon);
+  }
+
+  // 在租借清單套用：還不知道電話，個人專屬的優惠碼先不核對電話，送出訂單時後台會再檢查一次
+  async function applyCoupon() {
+    const input = $('[name="coupon"]', dlg.cart);
+    const code = String(input.value || '').trim();
+    const errEl = $('#coupon-error', dlg.cart);
+    const btn = $('#apply-coupon', dlg.cart);
+    if (!code) { errEl.textContent = '請輸入優惠碼'; errEl.hidden = false; return; }
+    btn.disabled = true;
+    btn.textContent = '檢查中…';
+    try {
+      const r = await apiPost({ action: 'coupon', code, items: state.cart });
+      if (!r.ok) throw new Error(r.error || '這個優惠碼不能使用');
+      state.coupon = { code: r.code, label: r.label, discount: r.discount, personal: !!r.personal };
+      refreshCoupon();
+      toast('已套用優惠碼');
+    } catch (e) {
+      errEl.textContent = e.message || '網路不穩，請稍後再試';
+      errEl.hidden = false;
+      btn.disabled = false;
+      btn.textContent = '套用';
+    }
   }
 
   function renderCart() {
@@ -374,7 +420,8 @@
             </div>`;
           }).join('')}
           ${state.start ? '' : '<p class="hint">還沒有選擇租借日期，請回到商品頁選好日期。</p>'}
-          ${summaryHTML(items)}
+          <div class="coupon-set"><span class="coupon-title">優惠碼（選填）</span><div id="coupon-box">${couponBoxHTML()}</div></div>
+          <div id="order-summary">${summaryHTML(items, state.coupon)}</div>
         </div>
         <div class="dlg-foot">
           <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '確認，填寫收件資料' : state.start ? '有衣服在這段期間無法租借' : '請先在商品頁選擇租借日期'}</button>
@@ -389,6 +436,7 @@
         <label><span>姓名 <span class="req">*</span></span><input name="name" required maxlength="50" autocomplete="name" value="${esc(f.name)}"></label>
         <label><span>電話 <span class="req">*</span></span><input name="phone" type="tel" required inputmode="tel" maxlength="20" autocomplete="tel" placeholder="09xx-xxx-xxx" value="${esc(f.phone)}"><small>之後用這支電話查詢租借紀錄</small></label>
         <label><span>順豐收件地址 <span class="req">*</span></span><textarea name="address" required rows="2" maxlength="200" autocomplete="street-address" placeholder="收件地址，或順豐服務站名稱">${esc(f.address)}</textarea></label>
+        <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="需要加購或借配件（例如髮飾、頭紗、鞋子），請寫在這裡">${esc(f.note)}</textarea><small>加購內容由我們確認後，會顯示在租借紀錄中</small></label>
         <fieldset class="refund-set">
           <legend>退押金帳戶 <span class="req">*</span></legend>
           <p class="hint">衣服歸還、確認無損後，押金會退到這個帳戶。</p>
@@ -399,10 +447,9 @@
           <label><span>帳號</span><input name="refundAccount" required inputmode="numeric" maxlength="30" autocomplete="off" placeholder="帳號數字"></label>
           <label><span>戶名</span><input name="refundHolder" required maxlength="50" value="${esc(f.refundHolder)}"></label>
         </fieldset>
-        <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="需要加購或借配件（例如髮飾、頭紗、鞋子），請寫在這裡">${esc(f.note)}</textarea><small>加購內容由我們確認後，會顯示在租借紀錄中</small></label>
         <input name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
         <label class="check"><input type="checkbox" name="agree" required> 我已閱讀並同意 <button type="button" class="link-btn" data-open="notice">租借須知</button></label>
-        ${summaryHTML(items)}
+        ${summaryHTML(items, state.coupon)}
         <p class="form-error" id="form-error" hidden></p>
       </form>
       <div class="dlg-foot foot-row">
@@ -442,12 +489,14 @@
           name: v('name'), phone: v('phone'), address: v('address'), note: v('note'),
           refundBankCode: v('refundBankCode'), refundBank: v('refundBank'), refundAccount: v('refundAccount'), refundHolder: v('refundHolder'),
         },
+        coupon: state.coupon ? state.coupon.code : '',
         website: v('website'),
       });
       if (!r.ok) throw new Error(r.error || '送出失敗，請稍後再試');
       const phone = v('phone');
       state.cart = [];
       state.start = '';
+      state.coupon = null;
       state.form = { name: v('name'), phone, address: v('address'), refundBankCode: v('refundBankCode'), refundBank: v('refundBank'), refundHolder: v('refundHolder') };
       rememberOrder(r.order.no, phone);
       updateCount();
@@ -467,6 +516,7 @@
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${D.pretty(o.startDate)} ～ ${D.pretty(o.endDate)}</dd></div>
       ${o.items.map(p => `<div><dt>${esc(fullName(p))}${p.size ? `（${esc(p.size)}）` : ''}</dt><dd>${p.rent != null ? money(p.rent) : ''}</dd></div>`).join('')}
+      ${o.discount ? `<div class="discount"><dt>優惠碼 ${esc(o.coupon)}</dt><dd>− ${money(o.discount)}</dd></div>` : ''}
       <div><dt>押金</dt><dd>${money(o.depositTotal)}</dd></div>
       ${o.shipping ? `<div><dt>順豐運費</dt><dd>${money(o.shipping)}</dd></div>` : ''}
       <div class="total"><dt>應付總額</dt><dd>${money(o.total)}</dd></div>
@@ -621,6 +671,7 @@
         <div><dt>截止日</dt><dd>${D.full(o.endDate)}</dd></div>
         <div><dt>租借商品</dt><dd>${o.items.map(p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '')).join('<br>')}</dd></div>
         ${o.addon ? `<div><dt>加購</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
+        ${o.discount ? `<div><dt>優惠碼</dt><dd>${esc(o.coupon)}（折抵 ${money(o.discount)}）</dd></div>` : ''}
         <div><dt>應付總額</dt><dd class="amount">${money(o.total)}</dd></div>
       </dl>
       ${o.payNote && o.status === '待付款' ? `<div class="notice-box"><b>查帳結果</b><p>${esc(o.payNote)}</p><p class="hint">請確認後重新回報匯款資料，或私訊我們。</p></div>` : ''}
@@ -677,7 +728,7 @@
   document.addEventListener('click', e => {
     const t = e.target;
     if (t.tagName === 'DIALOG') { t.close(); return; } // 點背景關閉
-    const el = t.closest('[data-close],[data-open],[data-filter],[data-product],[data-remove],[data-copy],#p-add,#to-form,#to-cart');
+    const el = t.closest('[data-close],[data-open],[data-filter],[data-product],[data-remove],[data-copy],#p-add,#to-form,#to-cart,#apply-coupon,#remove-coupon');
     if (!el) return;
     if (el.matches('[data-close]')) { el.closest('dialog').close(); return; }
     if (el.matches('[data-open]')) {
@@ -689,13 +740,21 @@
     if (el.matches('[data-product]')) { openProduct(el.dataset.product, el.dataset.piece); return; }
     if (el.matches('[data-remove]')) {
       state.cart = state.cart.filter(id => id !== el.dataset.remove);
+      state.coupon = null;
       save(); updateCount(); renderGrid(); renderCart();
       return;
     }
     if (el.matches('[data-copy]')) { copy(el.dataset.copy); return; }
     if (el.id === 'p-add') { addToCart(el.dataset.id); return; }
+    if (el.id === 'apply-coupon') { applyCoupon(); return; }
+    if (el.id === 'remove-coupon') { state.coupon = null; refreshCoupon(); return; }
     if (el.id === 'to-form') { state.cartStep = 'form'; renderCart(); return; }
     if (el.id === 'to-cart') { state.cartStep = 'cart'; renderCart(); }
+  });
+
+  // 租借清單的優惠碼欄按 Enter ＝ 套用
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.name === 'coupon') { e.preventDefault(); applyCoupon(); }
   });
 
   document.addEventListener('submit', e => {
@@ -779,6 +838,19 @@
         bookings: merged,
       };
     }
+    if (req.action === 'coupon' || (req.action === 'order' && req.coupon)) {
+      // 示範優惠碼：WELCOME100（共用，折 100）、VIP9（限 0912345678，租金 9 折）
+      const code = String((req.action === 'coupon' ? req.code : req.coupon) || '').toUpperCase().replace(/\s+/g, '');
+      const rent = (req.items || []).map(byId).filter(Boolean).reduce((a, p) => a + p.rent, 0);
+      const ph = String((req.customer && req.customer.phone) || req.phone || '').replace(/\D/g, '');
+      let c = null;
+      if (code === 'WELCOME100') c = { code, label: '折 NT$ 100', discount: Math.min(100, rent) };
+      else if (code === 'VIP9') c = ph === '0912345678' || (req.action === 'coupon' && !ph) ? { code, label: '租金 9 折', discount: rent - Math.round(rent * 0.9), personal: true } : 'phone';
+      if (!c) return { ok: false, error: '找不到這個優惠碼，請確認有沒有打錯。（示範模式可以試試 WELCOME100）' };
+      if (c === 'phone') return { ok: false, error: '這個優惠碼不適用於這支電話。' };
+      if (req.action === 'coupon') return Object.assign({ ok: true }, c);
+      req.demoCoupon = c;
+    }
     if (req.action === 'order') {
       const items = req.items.map(byId);
       const taken = items.filter(p => !isFree(p.id, req.startDate));
@@ -789,7 +861,10 @@
         no: 'SG' + t.slice(5).replace(/-/g, '') + '-' + Array.from({ length: 4 }, () => '23456789ABCDEFGHJKMNPQRSTUVWXYZ'[Math.floor(Math.random() * 31)]).join(''),
         status: '待付款', startDate: req.startDate, endDate: endOf(req.startDate),
         items: items.map(p => ({ id: p.id, brand: p.brand, name: p.name, size: p.size, rent: p.rent, deposit: p.deposit })),
-        rentTotal, depositTotal, shipping: 0, total: rentTotal + depositTotal,
+        rentTotal, depositTotal, shipping: 0,
+        coupon: req.demoCoupon ? req.demoCoupon.code : '', couponLabel: req.demoCoupon ? req.demoCoupon.label : '',
+        discount: req.demoCoupon ? req.demoCoupon.discount : 0,
+        total: rentTotal - (req.demoCoupon ? req.demoCoupon.discount : 0) + depositTotal,
         deadline: new Date(Date.now() + 24 * 36e5).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
         name: req.customer.name, phone: req.customer.phone, addon: '', remit: null,
       };
