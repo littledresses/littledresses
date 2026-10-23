@@ -138,7 +138,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
   transition: transform .2s ease;
 }
 .card:hover { transform: translateY(-2px); }
-.card-img { position: relative; aspect-ratio: 3 / 4; background: var(--surface-2); }
+/* 3:4 的照片框用 padding-top 撐高，不用 aspect-ratio：
+   舊版 iPhone（iOS 15 以前，含 Threads、LINE 等 App 內建瀏覽器）在卡片按鈕裡的 aspect-ratio 會算成 0 高，照片整塊消失 */
+.card-img { position: relative; height: 0; padding-top: 133.333%; background: var(--surface-2); }
 .card-img { overflow: hidden; }
 .card-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .card-badge { position: absolute; top: 8px; left: 8px; background: var(--rose-deep); color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
@@ -206,7 +208,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .cal-nav:disabled { opacity: .3; cursor: default; }
 .cal-dow, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
 .cal-dow { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
-.day { aspect-ratio: 1; border: 0; background: none; border-radius: 10px; font-size: 14px; position: relative; padding: 0; }
+.day { aspect-ratio: 1; min-height: 36px; border: 0; background: none; border-radius: 10px; font-size: 14px; position: relative; padding: 0; }
 .day.ok { color: var(--ink); font-weight: 500; }
 .day.ok:hover { background: var(--rose-soft); }
 .day:disabled { color: #cbbdb3; cursor: default; }
