@@ -55,13 +55,28 @@
   const minStart = () => D.add(D.today(), shop.minLeadDays);
   const maxStart = () => D.add(D.today(), shop.maxAheadDays);
   const inWindow = s => s >= minStart() && s <= maxStart();
+  // 同款同尺寸有 qty 件：每筆租借佔用一件 [起日, 迄日＋間隔天數]，同一天同時佔用的件數加上新的這件不能超過 qty
+  // （跟後台 Code.gs 的 canBook 是同一套算法，兩邊要一起改）
+  function canBook(ranges, qty, start, end, gap) {
+    const lo = start;
+    const hi = D.add(end, gap);
+    const hits = (ranges || []).map(([bs, be]) => [bs, D.add(be, gap)]).filter(([bs, be]) => bs <= hi && lo <= be);
+    if (hits.length < qty) return true;
+    const points = [];
+    hits.forEach(([bs, be]) => { points.push([bs < lo ? lo : bs, 1]); points.push([be > hi ? hi : be, -1]); });
+    points.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : b[1] - a[1]);
+    let cur = 0;
+    let max = 0;
+    points.forEach(([, d]) => { cur += d; max = Math.max(max, cur); });
+    return max < qty;
+  }
   const isFree = (id, start) => {
-    const end = endOf(start);
-    return !(bookings[id] || []).some(([bs, be]) => start <= D.add(be, shop.gapDays) && bs <= D.add(end, shop.gapDays));
+    const p = byId(id);
+    return canBook(bookings[id], (p && p.qty) || 1, start, endOf(start), shop.gapDays);
   };
   const canStart = (ids, s) => inWindow(s) && ids.every(id => isFree(id, s));
   const byId = id => products.find(p => p.id === id);
-  // 同品牌＋同名稱的多列＝同一款的不同尺寸（每個尺寸各一件）
+  // 同品牌＋同名稱的多列＝同一款的不同尺寸（每個尺寸可以有好幾件，見 qty）
   let styles = [];
   const sizeNum = v => { const n = parseFloat(v); return isFinite(n) ? n : 9999; };
   function buildStyles() {
@@ -119,7 +134,8 @@
     return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   }
   const styleImg = st => st.images[0] || placeholder({ id: st.key });
-  const imgTag = (src, alt, key) => `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" data-ph="${esc(key)}">`;
+  // 雲端硬碟的照片如果帶著網站網址（Referer）去要圖會被 Google 擋掉，所以不送 Referer
+  const imgTag = (src, alt, key) => `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy" referrerpolicy="no-referrer" data-ph="${esc(key)}">`;
   // 圖片網址失效時換成預設圖
   document.addEventListener('error', e => {
     const img = e.target;
@@ -373,6 +389,13 @@
         <label><span>姓名 <span class="req">*</span></span><input name="name" required maxlength="50" autocomplete="name" value="${esc(f.name)}"></label>
         <label><span>電話 <span class="req">*</span></span><input name="phone" type="tel" required inputmode="tel" maxlength="20" autocomplete="tel" placeholder="09xx-xxx-xxx" value="${esc(f.phone)}"><small>之後用這支電話查詢租借紀錄</small></label>
         <label><span>順豐收件地址 <span class="req">*</span></span><textarea name="address" required rows="2" maxlength="200" autocomplete="street-address" placeholder="收件地址，或順豐服務站名稱">${esc(f.address)}</textarea></label>
+        <fieldset class="refund-set">
+          <legend>退押金帳戶 <span class="req">*</span></legend>
+          <p class="hint">衣服歸還、確認無損後，押金會退到這個帳戶。</p>
+          <label><span>銀行名稱或代碼</span><input name="refundBank" required maxlength="50" placeholder="例如：國泰世華 013" value="${esc(f.refundBank)}"></label>
+          <label><span>帳號</span><input name="refundAccount" required inputmode="numeric" maxlength="30" autocomplete="off" placeholder="帳號數字"></label>
+          <label><span>戶名</span><input name="refundHolder" required maxlength="50" value="${esc(f.refundHolder)}"></label>
+        </fieldset>
         <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="需要加購或借配件（例如髮飾、頭紗、鞋子），請寫在這裡">${esc(f.note)}</textarea><small>加購內容由我們確認後，會顯示在租借紀錄中</small></label>
         <input name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
         <label class="check"><input type="checkbox" name="agree" required> 我已閱讀並同意 <button type="button" class="link-btn" data-open="notice">租借須知</button></label>
@@ -384,7 +407,8 @@
         <button type="submit" class="btn primary" form="order-form" id="submit-order">送出訂單</button>
       </div>`;
     $('#order-form', dlg.cart).addEventListener('input', e => {
-      if (e.target.name && e.target.name !== 'agree' && e.target.name !== 'website') { state.form[e.target.name] = e.target.value; save(); }
+      // 退押金帳號不存在手機裡
+      if (e.target.name && !['agree', 'website', 'refundAccount'].includes(e.target.name)) { state.form[e.target.name] = e.target.value; save(); }
     });
   }
 
@@ -395,6 +419,9 @@
     const problem = !v('name') ? '請填寫姓名'
       : v('phone').replace(/\D/g, '').length < 8 ? '請填寫正確的電話號碼'
       : !v('address') ? '請填寫順豐收件地址'
+      : !v('refundBank') ? '請填寫退押金的銀行'
+      : v('refundAccount').replace(/\D/g, '').length < 6 ? '請填寫正確的退押金帳號'
+      : !v('refundHolder') ? '請填寫退押金帳戶的戶名'
       : !fd.get('agree') ? '請勾選同意租借須知' : '';
     if (problem) { err.textContent = problem; err.hidden = false; err.scrollIntoView({ block: 'nearest' }); return; }
 
@@ -407,14 +434,17 @@
         action: 'order',
         items: state.cart,
         startDate: state.start,
-        customer: { name: v('name'), phone: v('phone'), address: v('address'), note: v('note') },
+        customer: {
+          name: v('name'), phone: v('phone'), address: v('address'), note: v('note'),
+          refundBank: v('refundBank'), refundAccount: v('refundAccount'), refundHolder: v('refundHolder'),
+        },
         website: v('website'),
       });
       if (!r.ok) throw new Error(r.error || '送出失敗，請稍後再試');
       const phone = v('phone');
       state.cart = [];
       state.start = '';
-      state.form = { name: v('name'), phone, address: v('address') };
+      state.form = { name: v('name'), phone, address: v('address'), refundBank: v('refundBank'), refundHolder: v('refundHolder') };
       rememberOrder(r.order.no, phone);
       updateCount();
       renderDone(r, phone);
@@ -513,6 +543,8 @@
     try {
       const r = await apiPost({ action: 'report', orderNo: form.dataset.no, phone: form.dataset.phone, remit });
       if (!r.ok) throw new Error(r.error);
+      const note = form.closest('.record') && form.closest('.record').querySelector('.notice-box');
+      if (note) note.remove();
       form.outerHTML = remitHTML(Object.assign({ confirmed: false }, remit));
       toast('已收到您的匯款資料');
     } catch (e) {
@@ -574,7 +606,8 @@
   }
 
   function recordHTML(o, bank, phone) {
-    const needPay = o.status === '待付款' && !o.remit;
+    // 還沒回報匯款、或店家查無款項時，再顯示一次匯款資訊和回報表單
+    const needPay = o.status === '待付款' && (!o.remit || o.payNote);
     return `<article class="record">
       <div class="record-head"><span>訂單 ${esc(o.no)}</span><span class="status-badge">${esc(o.status)}</span></div>
       <dl class="record-info">
@@ -586,8 +619,20 @@
         ${o.addon ? `<div><dt>加購</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
         <div><dt>應付總額</dt><dd class="amount">${money(o.total)}</dd></div>
       </dl>
-      ${o.remit ? remitHTML(o.remit) : needPay ? paymentHTML(o, bank, phone) : ''}
+      ${o.payNote && o.status === '待付款' ? `<div class="notice-box"><b>查帳結果</b><p>${esc(o.payNote)}</p><p class="hint">請確認後重新回報匯款資料，或私訊我們。</p></div>` : ''}
+      ${needPay ? paymentHTML(o, bank, phone) : o.remit ? remitHTML(o.remit) : ''}
+      ${progressHTML(o)}
     </article>`;
+  }
+
+  // 出貨、歸還、退押金的進度
+  function progressHTML(o) {
+    const rows = [];
+    if (o.tracking) rows.push(`<div><dt>順豐單號</dt><dd><span class="mono">${esc(o.tracking)}</span><button type="button" class="copy" data-copy="${esc(o.tracking)}">複製</button>${o.shippedAt ? `<br><small>${D.full(o.shippedAt)} 寄出</small>` : ''}</dd></div>`);
+    if (o.returnedAt) rows.push(`<div><dt>歸還驗收</dt><dd>${o.deduct ? `扣款 ${money(o.deduct)}<br><small>${esc(o.deductReason)}</small>` : '衣服完好，謝謝您 ✦'}</dd></div>`);
+    if (o.refund != null) rows.push(`<div><dt>退押金</dt><dd><span class="amount">${money(o.refund)}</span>${o.refundedAt ? `<br><small>${D.full(o.refundedAt)} 已退回您的帳戶</small>` : ''}</dd></div>`);
+    else if (o.returnedAt) rows.push(`<div><dt>退押金</dt><dd>處理中，退款後會更新</dd></div>`);
+    return rows.length ? `<dl class="bank progress-box">${rows.join('')}</dl>` : '';
   }
 
   function openNotice() {
@@ -686,9 +731,10 @@
   const demoOrders = (() => {
     const t = D.today();
     return [{
-      no: 'SG' + D.add(t, -20).slice(5).replace(/-/g, '') + '-K7QF', status: '已歸還', name: '陳小美', phone: '0912345678',
+      no: 'SG' + D.add(t, -20).slice(5).replace(/-/g, '') + '-K7QF', status: '已退押金', name: '陳小美', phone: '0912345678',
       startDate: D.add(t, -14), endDate: D.add(t, -9), items: [{ id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80' }],
       total: 10600, addon: '', remit: { name: '陳小美', bank: '國泰世華', date: D.add(t, -19), amount: 10600, last5: '24680', confirmed: true },
+      tracking: 'SF1234567890', shippedAt: D.add(t, -16), returnedAt: D.add(t, -7), deduct: 0, refund: 10000, refundedAt: D.add(t, -6),
     }, {
       no: 'SG' + D.add(t, -2).slice(5).replace(/-/g, '') + '-M3XA', status: '已付款', name: '陳小美', phone: '0912345678',
       startDate: D.add(t, 40), endDate: D.add(t, 45), items: [{ id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90' }],
@@ -714,12 +760,12 @@
           notice: '・訂單成立後請於期限內完成匯款，逾期未付款的訂單可能會被取消。\n・衣服會以順豐寄出，於租借起日前送達。\n・請於租借迄日當天以順豐寄回，包裹內會附上回寄說明。\n・押金於收到衣服並確認無損後全額退還。\n・如有難以清除的污漬或損壞，將視情況從押金扣除清潔或修補費用。\n・衣服皆已專業清洗，歸還前無須自行清洗。',
         },
         products: [
-          { id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80', rent: 600, deposit: 10000, images: ['images/rose-lace.jpg'] },
-          { id: 'SG002', brand: '多霏', name: '粉漾微光', size: '90', rent: 600, deposit: 10000, images: [] },
-          { id: 'SG003', brand: '多霏', name: '粉漾微光', size: '100', rent: 600, deposit: 10000, images: [] },
-          { id: 'SG004', brand: '多霏', name: '我的羅曼史', size: '80', rent: 600, deposit: 10000, images: ['images/lavender-garden.jpg'] },
-          { id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90', rent: 600, deposit: 10000, images: [] },
-          { id: 'SG006', brand: '多霏', name: '我的羅曼史', size: '110', rent: 600, deposit: 10000, images: [] },
+          { id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80', qty: 1, rent: 600, deposit: 10000, images: ['images/rose-lace.jpg'] },
+          { id: 'SG002', brand: '多霏', name: '粉漾微光', size: '90', qty: 2, rent: 600, deposit: 10000, images: [] },
+          { id: 'SG003', brand: '多霏', name: '粉漾微光', size: '100', qty: 1, rent: 600, deposit: 10000, images: [] },
+          { id: 'SG004', brand: '多霏', name: '我的羅曼史', size: '80', qty: 1, rent: 600, deposit: 10000, images: ['images/lavender-garden.jpg'] },
+          { id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90', qty: 1, rent: 600, deposit: 10000, images: [] },
+          { id: 'SG006', brand: '多霏', name: '我的羅曼史', size: '110', qty: 1, rent: 600, deposit: 10000, images: [] },
         ],
         bookings: merged,
       };
@@ -746,6 +792,7 @@
       const o = demoOrders.find(x => sameNo(x.no, req.orderNo) && digits(x.phone) === digits(req.phone));
       if (!o) return { ok: false, error: '查不到這筆訂單' };
       o.remit = Object.assign({ confirmed: false }, req.remit);
+      o.payNote = '';
       return { ok: true };
     }
     // 跟正式後台一樣：要電話＋訂單編號都對，姓名、電話遮掉一部分

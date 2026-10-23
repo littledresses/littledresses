@@ -313,3 +313,16 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
   opacity: 0; pointer-events: none; transition: .25s ease; z-index: 100; max-width: calc(100vw - 32px); text-align: center;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* 下單表單：退押金帳戶 */
+.refund-set { border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px 4px; margin: 4px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.refund-set legend { font-family: var(--serif); font-size: 14px; padding: 0 6px; color: var(--ink); }
+.refund-set .hint { margin: 0; }
+
+/* 查詢紀錄：查帳結果、出貨與退押金進度 */
+.notice-box { margin-top: 12px; border: 1px solid #e8b9b0; background: #fdf1ee; border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+.notice-box b { color: var(--danger); }
+.notice-box p { margin: 4px 0 0; }
+.notice-box .hint { margin-top: 6px; }
+.progress-box { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--line); }
+.progress-box small { color: var(--muted); font-size: 12px; }

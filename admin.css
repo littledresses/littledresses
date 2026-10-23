@@ -1,0 +1,84 @@
+/* 蒔光衣櫥｜手機管理頁：沿用 style.css 的配色與字型，這裡只放管理頁專用的版面 */
+body.admin { padding-bottom: env(safe-area-inset-bottom); }
+
+/* 登入 */
+.login { max-width: 360px; margin: 0 auto; padding: 56px 20px 32px; text-align: center; }
+.login-mark { width: 72px; height: 72px; border-radius: 50%; margin: 0 auto 12px; box-shadow: 0 0 0 1px var(--line); }
+.login h1 { font-size: 20px; letter-spacing: .14em; margin-bottom: 24px; }
+.login .form { text-align: left; gap: 14px; }
+.login .hint { margin-top: 16px; }
+
+/* 頁首 */
+.adm-head {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px 10px 16px; background: rgba(248, 243, 236, .94); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.adm-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.adm-title img { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+.adm-title b { display: block; font-family: var(--serif); font-weight: 500; letter-spacing: .1em; }
+.adm-title small { display: block; font-size: 12px; color: var(--muted); }
+.adm-tools { display: flex; flex-shrink: 0; }
+.adm-tools .nav-btn { font-size: 13px; padding: 8px 10px; letter-spacing: .08em; }
+
+/* 搜尋與分頁 */
+.adm-search { padding: 12px 16px 0; max-width: 720px; margin: 0 auto; }
+.adm-search input { width: 100%; border: 1px solid var(--line); border-radius: 999px; padding: 10px 16px; background: var(--surface); font-size: 15px; }
+.adm-search input:focus { outline: 2px solid var(--rose); border-color: var(--rose); }
+.adm-result { max-width: 720px; margin: 10px auto 0; padding: 0 16px; font-size: 13px; color: var(--muted); }
+.adm-tabs {
+  display: flex; gap: 8px; overflow-x: auto; padding: 12px 16px 2px; max-width: 720px; margin: 0 auto;
+  scrollbar-width: none;
+}
+.adm-tabs::-webkit-scrollbar { display: none; }
+.adm-tabs button {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  border-radius: 999px; padding: 7px 14px; font-family: var(--serif); font-size: 14px; letter-spacing: .06em;
+}
+.adm-tabs button[aria-pressed="true"] { background: var(--rose-soft); border-color: var(--rose-deep); color: var(--rose-deep); }
+.adm-tabs span {
+  min-width: 20px; height: 20px; border-radius: 10px; padding: 0 6px; display: inline-grid; place-items: center;
+  background: var(--rose-deep); color: #fff; font-family: var(--sans); font-size: 12px; letter-spacing: 0;
+}
+
+/* 訂單卡片 */
+.adm-list { max-width: 720px; margin: 0 auto; padding: 12px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+.adm-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; box-shadow: var(--shadow); transition: opacity .2s; }
+.adm-card.urgent { border-color: var(--rose-deep); box-shadow: 0 0 0 1px var(--rose-deep), var(--shadow); }
+.adm-card.busy { opacity: .5; pointer-events: none; }
+.adm-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.adm-who { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 6px; }
+.adm-who b { font-family: var(--serif); font-size: 18px; font-weight: 600; letter-spacing: .06em; }
+.adm-who .copy { text-decoration: none; white-space: nowrap; font-size: 13px; padding: 4px 12px; }
+.adm-info { margin: 0; }
+.adm-info div { display: flex; gap: 10px; padding: 4px 0; font-size: 14px; }
+.adm-info dt { width: 64px; flex-shrink: 0; color: var(--muted); }
+.adm-info dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.adm-info small { color: var(--muted); font-size: 12px; }
+.adm-info em { font-style: normal; font-size: 12px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
+.adm-info em.warn { background: var(--rose-deep); color: #fff; }
+
+.adm-remit { margin-top: 10px; border-radius: 12px; padding: 10px 12px; font-size: 14px; background: #eef4ec; }
+.adm-remit.mismatch { background: #fdf1ee; }
+.adm-remit > span { float: right; font-size: 12px; color: var(--ok); }
+.adm-remit.mismatch > span { color: var(--danger); }
+.adm-remit p { margin: 4px 0 0; }
+.adm-note { color: var(--danger); font-size: 13px; }
+
+.adm-refund { margin-top: 10px; border-radius: 12px; padding: 10px 12px; font-size: 14px; background: var(--surface-2); }
+.adm-refund p { margin: 4px 0 0; line-height: 1.8; }
+
+.adm-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.adm-actions .btn { flex: 1 1 auto; }
+.btn.ghost { border-color: transparent; background: none; color: var(--muted); flex: 0 0 auto; text-decoration: underline; text-underline-offset: 3px; }
+.adm-form { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); gap: 10px; }
+.adm-form .foot-row .btn.ghost { flex: 0 0 auto; }
+.adm-choice { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.adm-deduct { display: flex; flex-direction: column; gap: 10px; }
+.adm-deduct[hidden] { display: none; }
+
+.adm-log { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.adm-log summary { cursor: pointer; }
+.adm-log pre { white-space: pre-wrap; font-family: inherit; margin: 6px 0 0; line-height: 1.7; }
