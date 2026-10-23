@@ -392,7 +392,10 @@
         <fieldset class="refund-set">
           <legend>退押金帳戶 <span class="req">*</span></legend>
           <p class="hint">衣服歸還、確認無損後，押金會退到這個帳戶。</p>
-          <label><span>銀行名稱或代碼</span><input name="refundBank" required maxlength="50" placeholder="例如：國泰世華 013" value="${esc(f.refundBank)}"></label>
+          <div class="form-row">
+            <label><span>銀行代碼</span><input name="refundBankCode" required inputmode="numeric" maxlength="3" placeholder="例如 013" value="${esc(f.refundBankCode)}"></label>
+            <label><span>銀行名稱</span><input name="refundBank" required maxlength="50" placeholder="例如 國泰世華" value="${esc(f.refundBank)}"></label>
+          </div>
           <label><span>帳號</span><input name="refundAccount" required inputmode="numeric" maxlength="30" autocomplete="off" placeholder="帳號數字"></label>
           <label><span>戶名</span><input name="refundHolder" required maxlength="50" value="${esc(f.refundHolder)}"></label>
         </fieldset>
@@ -419,7 +422,8 @@
     const problem = !v('name') ? '請填寫姓名'
       : v('phone').replace(/\D/g, '').length < 8 ? '請填寫正確的電話號碼'
       : !v('address') ? '請填寫順豐收件地址'
-      : !v('refundBank') ? '請填寫退押金的銀行'
+      : !/^\d{3}$/.test(v('refundBankCode')) ? '請填寫 3 碼的退押金銀行代碼'
+      : !v('refundBank') ? '請填寫退押金的銀行名稱'
       : v('refundAccount').replace(/\D/g, '').length < 6 ? '請填寫正確的退押金帳號'
       : !v('refundHolder') ? '請填寫退押金帳戶的戶名'
       : !fd.get('agree') ? '請勾選同意租借須知' : '';
@@ -436,7 +440,7 @@
         startDate: state.start,
         customer: {
           name: v('name'), phone: v('phone'), address: v('address'), note: v('note'),
-          refundBank: v('refundBank'), refundAccount: v('refundAccount'), refundHolder: v('refundHolder'),
+          refundBankCode: v('refundBankCode'), refundBank: v('refundBank'), refundAccount: v('refundAccount'), refundHolder: v('refundHolder'),
         },
         website: v('website'),
       });
@@ -444,7 +448,7 @@
       const phone = v('phone');
       state.cart = [];
       state.start = '';
-      state.form = { name: v('name'), phone, address: v('address'), refundBank: v('refundBank'), refundHolder: v('refundHolder') };
+      state.form = { name: v('name'), phone, address: v('address'), refundBankCode: v('refundBankCode'), refundBank: v('refundBank'), refundHolder: v('refundHolder') };
       rememberOrder(r.order.no, phone);
       updateCount();
       renderDone(r, phone);
@@ -629,9 +633,14 @@
   function progressHTML(o) {
     const rows = [];
     if (o.tracking) rows.push(`<div><dt>順豐單號</dt><dd><span class="mono">${esc(o.tracking)}</span><button type="button" class="copy" data-copy="${esc(o.tracking)}">複製</button>${o.shippedAt ? `<br><small>${D.full(o.shippedAt)} 寄出</small>` : ''}</dd></div>`);
-    if (o.returnedAt) rows.push(`<div><dt>歸還驗收</dt><dd>${o.deduct ? `扣款 ${money(o.deduct)}<br><small>${esc(o.deductReason)}</small>` : '衣服完好，謝謝您 ✦'}</dd></div>`);
-    if (o.refund != null) rows.push(`<div><dt>退押金</dt><dd><span class="amount">${money(o.refund)}</span>${o.refundedAt ? `<br><small>${D.full(o.refundedAt)} 已退回您的帳戶</small>` : ''}</dd></div>`);
-    else if (o.returnedAt) rows.push(`<div><dt>退押金</dt><dd>處理中，退款後會更新</dd></div>`);
+    if (o.extendFee) rows.push(`<div><dt>延期加收</dt><dd>${money(o.extendFee)}<br><small>會從押金扣除</small></dd></div>`);
+    if (o.returnedAt) rows.push(`<div><dt>歸還驗收</dt><dd>${!o.inspected ? `已收到衣服，檢查中<br><small>${D.full(o.returnedAt)} 收到</small>` : o.deduct ? `扣款 ${money(o.deduct)}<br><small>${esc(o.deductReason)}</small>` : '衣服完好，謝謝您 ✦'}</dd></div>`);
+    // 退款日期＋轉出帳號後五碼，方便客戶對帳（舊資料沒有的話用系統記錄的時間）
+    const refundNote = at => o.refundDate ? `<br><small>${D.full(o.refundDate)} 已退回您的帳戶${o.refundLast5 ? `<br>轉出帳號後五碼 ${esc(o.refundLast5)}` : ''}</small>` : at ? `<br><small>${D.full(at)} 已退回您的帳戶</small>` : '';
+    if (o.refund != null) rows.push(`<div><dt>退押金</dt><dd><span class="amount">${money(o.refund)}</span>${refundNote(o.refundedAt)}</dd></div>`);
+    else if (o.returnedAt && o.inspected) rows.push(`<div><dt>退押金</dt><dd>處理中，退款後會更新</dd></div>`);
+    // 已付款後取消的訂單
+    if (o.cancelRefund != null) rows.push(`<div><dt>取消退款</dt><dd><span class="amount">${money(o.cancelRefund)}</span>${o.cancelRefundedAt ? refundNote(o.cancelRefundedAt) : '<br><small>訂單已取消，退款處理中</small>'}</dd></div>`);
     return rows.length ? `<dl class="bank progress-box">${rows.join('')}</dl>` : '';
   }
 
@@ -734,7 +743,7 @@
       no: 'SG' + D.add(t, -20).slice(5).replace(/-/g, '') + '-K7QF', status: '已退押金', name: '陳小美', phone: '0912345678',
       startDate: D.add(t, -14), endDate: D.add(t, -9), items: [{ id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80' }],
       total: 10600, addon: '', remit: { name: '陳小美', bank: '國泰世華', date: D.add(t, -19), amount: 10600, last5: '24680', confirmed: true },
-      tracking: 'SF1234567890', shippedAt: D.add(t, -16), returnedAt: D.add(t, -7), deduct: 0, refund: 10000, refundedAt: D.add(t, -6),
+      tracking: 'SF1234567890', shippedAt: D.add(t, -16), returnedAt: D.add(t, -7), inspected: true, deduct: 0, refund: 10000, refundedAt: D.add(t, -6), refundDate: D.add(t, -6), refundLast5: '88123',
     }, {
       no: 'SG' + D.add(t, -2).slice(5).replace(/-/g, '') + '-M3XA', status: '已付款', name: '陳小美', phone: '0912345678',
       startDate: D.add(t, 40), endDate: D.add(t, 45), items: [{ id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90' }],

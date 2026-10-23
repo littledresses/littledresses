@@ -17,7 +17,7 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 }
 .adm-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .adm-title img { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
-.adm-title b { display: block; font-family: var(--serif); font-weight: 500; letter-spacing: .1em; }
+.adm-title b { display: block; white-space: nowrap; font-family: var(--serif); font-weight: 500; letter-spacing: .1em; }
 .adm-title small { display: block; font-size: 12px; color: var(--muted); }
 .adm-tools { display: flex; flex-shrink: 0; }
 .adm-tools .nav-btn { font-size: 13px; padding: 8px 10px; letter-spacing: .08em; }
@@ -57,7 +57,7 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-info dt { width: 64px; flex-shrink: 0; color: var(--muted); }
 .adm-info dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .adm-info small { color: var(--muted); font-size: 12px; }
-.adm-info em { font-style: normal; font-size: 12px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
+.adm-info em { white-space: nowrap; display: inline-block; font-style: normal; font-size: 12px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
 .adm-info em.warn { background: var(--rose-deep); color: #fff; }
 
 .adm-remit { margin-top: 10px; border-radius: 12px; padding: 10px 12px; font-size: 14px; background: #eef4ec; }
@@ -82,3 +82,9 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-log { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .adm-log summary { cursor: pointer; }
 .adm-log pre { white-space: pre-wrap; font-family: inherit; margin: 6px 0 0; line-height: 1.7; }
+
+/* 自己畫的確認視窗（取代會被某些瀏覽器擋掉的系統 confirm） */
+.adm-ask { position: fixed; inset: 0; z-index: 100; background: rgba(70, 50, 40, .35); display: grid; place-items: center; padding: 24px; }
+.adm-ask-card { width: min(360px, 100%); background: var(--surface); border-radius: 18px; padding: 20px 18px 16px; box-shadow: 0 20px 60px rgba(60, 40, 30, .25); }
+.adm-ask-card p { margin: 0 0 16px; font-size: 15px; line-height: 1.7; white-space: normal; }
+.adm-ask-card input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 15px; }
