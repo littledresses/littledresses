@@ -88,3 +88,4 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-ask-card { width: min(360px, 100%); background: var(--surface); border-radius: 18px; padding: 20px 18px 16px; box-shadow: 0 20px 60px rgba(60, 40, 30, .25); }
 .adm-ask-card p { margin: 0 0 16px; font-size: 15px; line-height: 1.7; white-space: normal; }
 .adm-ask-card input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 15px; }
+.adm-addons small { display: block; }

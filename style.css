@@ -341,3 +341,42 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .coupon-applied b { letter-spacing: .04em; }
 .summary .discount dd { color: var(--ok); }
 .coupon-note { margin: 6px 0 0; }
+
+/* 商品頁：加購配件 */
+.addon-list { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.addon { display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.addon img { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: var(--surface-2); flex-shrink: 0; }
+.addon-info { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.4; }
+.addon-info b { font-family: var(--serif); font-weight: 500; font-size: 15px; }
+.addon-info span { font-size: 13px; color: var(--rose-deep); }
+.addon-info small { font-size: 12px; color: var(--muted); }
+.addon.off { opacity: .55; }
+.stepper { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.stepper button {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  font-size: 18px; line-height: 1; color: var(--ink-soft); display: grid; place-items: center;
+}
+.stepper button:not(:disabled):hover { border-color: var(--rose); color: var(--rose-deep); }
+.stepper button:disabled { opacity: .35; cursor: not-allowed; }
+.stepper span { min-width: 26px; text-align: center; font-family: var(--latin); font-size: 19px; font-variant-numeric: lining-nums; }
+.addon-line img { height: 60px; }
+
+/* 加購照片：點小圖放大 */
+.addon-photo { position: relative; padding: 0; border: 0; background: none; border-radius: 10px; flex-shrink: 0; cursor: zoom-in; }
+.addon-photo span {
+  position: absolute; right: 4px; bottom: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: rgba(94, 74, 62, .7); color: #fff; font-size: 11px; line-height: 18px; text-align: center;
+}
+/* 手機上其他彈窗是滿版，放大照片改成置中的小視窗，後面的商品頁還看得到 */
+.dlg.photo-viewer { width: min(520px, calc(100vw - 24px)); height: fit-content; max-height: calc(100dvh - 24px); margin: auto; border-radius: 20px; }
+.dlg.photo-viewer::backdrop { background: rgba(40, 28, 22, .6); }
+.photo-stage { position: relative; background: var(--surface-2); }
+.photo-stage img { display: block; width: 100%; max-height: 70vh; object-fit: contain; }
+.photo-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%;
+  border: 0; background: rgba(255, 253, 250, .85); font-size: 24px; line-height: 1; color: var(--ink); display: grid; place-items: center;
+}
+.photo-nav.prev { left: 10px; }
+.photo-nav.next { right: 10px; }
+.photo-count { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); background: rgba(94, 74, 62, .65); color: #fff; font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+.photo-caption { margin: 0; padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); font-size: 13px; color: var(--muted); text-align: center; }

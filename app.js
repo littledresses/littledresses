@@ -27,8 +27,11 @@
   let shop = null;
   let products = [];
   let bookings = {};
+  let addons = [];        // 加購配件（跟衣服一起借出、一起歸還，不收押金）
+  let addonBookings = {}; // { 加購編號: [[起日, 迄日], ...] }，借幾個就有幾段
   const state = {
     cart: store.get('sg_cart', []),
+    addons: store.get('sg_addons', {}), // 選了哪些加購 { 加購編號: 數量 }，整張訂單共用
     start: store.get('sg_start', ''),
     form: store.get('sg_form', {}),
     // 在這台裝置下單的訂單 [{ no, phone }]，新的在前；查詢紀錄時自動列出（只查詢過的不記）
@@ -37,7 +40,7 @@
     size: '',
     coupon: null, // 套用成功的優惠碼 { code, label, discount }；清單有變動就清掉，下單時後台會再檢查一次
   };
-  const save = () => { store.set('sg_cart', state.cart); store.set('sg_start', state.start); store.set('sg_form', state.form); store.set('sg_orders', state.orders); };
+  const save = () => { store.set('sg_cart', state.cart); store.set('sg_addons', state.addons); store.set('sg_start', state.start); store.set('sg_form', state.form); store.set('sg_orders', state.orders); };
   const sameNo = (a, b) => String(a).toUpperCase().replace(/[^0-9A-Z]/g, '') === String(b).toUpperCase().replace(/[^0-9A-Z]/g, '');
   function rememberOrder(no, phone) {
     state.orders = [{ no, phone }].concat(state.orders.filter(o => !sameNo(o.no, no))).slice(0, 20);
@@ -56,26 +59,36 @@
   const minStart = () => D.add(D.today(), shop.minLeadDays);
   const maxStart = () => D.add(D.today(), shop.maxAheadDays);
   const inWindow = s => s >= minStart() && s <= maxStart();
-  // 同款同尺寸有 qty 件：每筆租借佔用一件 [起日, 迄日＋間隔天數]，同一天同時佔用的件數加上新的這件不能超過 qty
+  // 同款同尺寸有 qty 件：每筆租借佔用一件 [起日, 迄日＋間隔天數]，同一天同時佔用的件數加上這次要借的 need 件不能超過 qty
   // （跟後台 Code.gs 的 canBook 是同一套算法，兩邊要一起改）
-  function canBook(ranges, qty, start, end, gap) {
+  function canBook(ranges, qty, start, end, gap, need) {
+    need = need || 1;
+    if (need > qty) return false;
     const lo = start;
     const hi = D.add(end, gap);
     const hits = (ranges || []).map(([bs, be]) => [bs, D.add(be, gap)]).filter(([bs, be]) => bs <= hi && lo <= be);
-    if (hits.length < qty) return true;
+    if (hits.length + need <= qty) return true;
     const points = [];
     hits.forEach(([bs, be]) => { points.push([bs < lo ? lo : bs, 1]); points.push([be > hi ? hi : be, -1]); });
     points.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : b[1] - a[1]);
     let cur = 0;
     let max = 0;
     points.forEach(([, d]) => { cur += d; max = Math.max(max, cur); });
-    return max < qty;
+    return max + need <= qty;
   }
   const isFree = (id, start) => {
     const p = byId(id);
     return canBook(bookings[id], (p && p.qty) || 1, start, endOf(start), shop.gapDays);
   };
   const canStart = (ids, s) => inWindow(s) && ids.every(id => isFree(id, s));
+  // 加購：這段期間最多還能借幾個
+  const addonById = id => addons.find(a => a.id === id);
+  function addonAvail(a, start) {
+    for (let n = a.qty; n > 0; n--) if (canBook(addonBookings[a.id], a.qty, start, endOf(start), shop.gapDays, n)) return n;
+    return 0;
+  }
+  const chosenAddons = () => Object.keys(state.addons).map(id => ({ a: addonById(id), qty: state.addons[id] })).filter(x => x.a && x.qty > 0);
+  const addonsOk = start => chosenAddons().every(x => x.qty <= addonAvail(x.a, start));
   const byId = id => products.find(p => p.id === id);
   // 同品牌＋同名稱的多列＝同一款的不同尺寸（每個尺寸可以有好幾件，見 qty）
   let styles = [];
@@ -115,8 +128,11 @@
     shop = r.shop;
     products = r.products || [];
     bookings = r.bookings || {};
+    addons = r.addons || [];
+    addonBookings = r.addonBookings || {};
     buildStyles();
     state.cart = state.cart.filter(id => byId(id));
+    Object.keys(state.addons).forEach(id => { if (!addonById(id) || !state.cart.length) delete state.addons[id]; });
     if (state.start && !inWindow(state.start)) state.start = '';
     save();
   }
@@ -274,16 +290,18 @@
         <h3 class="sec-title">選擇租借日期</h3>
         <p class="hint">${locked ? '同一張訂單的租借期間相同，已固定為租借清單的日期。要換日期，請先移除清單裡的衣服。' : `點選起日，迄日自動為起日＋${shop.rentalDays} 天。`}</p>
         <div id="p-cal"></div>
-        <div id="p-status"></div>`;
+        <div id="p-status"></div>
+        <div id="p-addons"></div>`;
       const p = piece;
       const showStatus = () => {
         const box = $('#p-status', dlg.product);
         const free = !!state.start && canStart([p.id], state.start);
         if (state.cart.includes(p.id)) { btn.disabled = false; btn.textContent = '已在清單・前往結帳'; }
         else { btn.disabled = !free; btn.textContent = free ? '加入租借清單' : state.start ? '這段期間無法租借' : '請先選擇租借日期'; }
-        if (!state.start) { box.innerHTML = ''; return; }
+        if (!state.start) { box.innerHTML = ''; renderAddonPicker(); return; }
         box.innerHTML = `<div class="range-box">${rangeText(state.start)}
           <div class="status-line ${free ? 'ok' : 'bad'}">${free ? '✓ 這段期間可以租借' : locked ? '✕ 這個尺寸在租借清單的期間已被預約' : '✕ 這個尺寸在這段期間已被預約，請換日期或尺寸'}</div></div>`;
+        renderAddonPicker();
       };
       calendar($('#p-cal', dlg.product), {
         isSelectable: d => locked ? d === state.start : canStart([p.id], d),
@@ -302,6 +320,8 @@
         dlg.product.querySelectorAll('[data-thumb]').forEach(b => b.setAttribute('aria-current', b === t));
         return;
       }
+      const step = e.target.closest('[data-addon-step]');
+      if (step) { stepAddon(step.closest('[data-addon]').dataset.addon, Number(step.dataset.addonStep)); return; }
       const sz = e.target.closest('[data-size]');
       if (sz) {
         piece = st.pieces.find(p => p.id === sz.dataset.size);
@@ -310,6 +330,81 @@
       }
     };
     showModal(dlg.product);
+  }
+
+  // 商品頁的加購配件：選好日期才知道這段期間還剩幾個；選的數量整張訂單共用
+  function renderAddonPicker() {
+    const box = $('#p-addons', dlg.product);
+    if (!box) return;
+    if (!addons.length) { box.innerHTML = ''; return; }
+    if (!state.start) {
+      box.innerHTML = '<h3 class="sec-title">加購配件</h3><p class="hint">選好租借日期後，可以加購配件。</p>';
+      return;
+    }
+    box.innerHTML = `<h3 class="sec-title">加購配件（選填）</h3>
+      <p class="hint">跟衣服一起寄出、一起歸還，不收押金。</p>
+      <div class="addon-list">${addons.map(a => {
+        const avail = addonAvail(a, state.start);
+        const n = Math.min(state.addons[a.id] || 0, avail);
+        return `<div class="addon${avail ? '' : ' off'}" data-addon="${esc(a.id)}">
+          <button type="button" class="addon-photo" data-addon-photo="${esc(a.id)}" aria-label="放大看 ${esc(a.name)} 的照片">${imgTag(a.images[0] || placeholder({ id: a.id }), a.name, a.id)}${a.images.length > 1 ? `<span>${a.images.length}</span>` : ''}</button>
+          <div class="addon-info"><b>${esc(a.name)}</b><span>${money(a.price)} / 個</span><small>${avail ? `這段期間還可以借 ${avail} 個` : '這段期間已借完'}</small></div>
+          <div class="stepper">
+            <button type="button" data-addon-step="-1" aria-label="減少" ${n ? '' : 'disabled'}>−</button>
+            <span>${n}</span>
+            <button type="button" data-addon-step="1" aria-label="增加" ${n < avail ? '' : 'disabled'}>＋</button>
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+  }
+
+  // 加購配件的照片放大檢視：疊在商品頁／租借清單上面，多張照片可以左右切換
+  const photoDlg = document.createElement('dialog');
+  photoDlg.className = 'dlg photo-viewer';
+  document.body.appendChild(photoDlg);
+  function openAddonPhotos(id) {
+    const a = addonById(id);
+    if (!a) return;
+    const imgs = a.images.length ? a.images : [placeholder({ id: a.id })];
+    let i = 0;
+    const draw = () => {
+      photoDlg.innerHTML = `
+        <div class="dlg-head"><h2>${esc(a.name)}</h2><button type="button" class="dlg-close" data-photo-close aria-label="關閉">×</button></div>
+        <div class="photo-stage">
+          ${imgTag(imgs[i], a.name, a.id)}
+          ${imgs.length > 1 ? `
+            <button type="button" class="photo-nav prev" data-photo-step="-1" aria-label="上一張">‹</button>
+            <button type="button" class="photo-nav next" data-photo-step="1" aria-label="下一張">›</button>
+            <span class="photo-count">${i + 1} / ${imgs.length}</span>` : ''}
+        </div>
+        <p class="photo-caption">${money(a.price)} / 個・跟衣服一起寄出、一起歸還</p>`;
+    };
+    photoDlg.onclick = e => {
+      if (e.target === photoDlg || e.target.closest('[data-photo-close]')) { photoDlg.close(); return; }
+      const step = e.target.closest('[data-photo-step]');
+      if (step) { i = (i + Number(step.dataset.photoStep) + imgs.length) % imgs.length; draw(); }
+    };
+    // 手機上左右滑動切換
+    let x0 = null;
+    photoDlg.ontouchstart = e => { x0 = e.touches[0].clientX; };
+    photoDlg.ontouchend = e => {
+      if (x0 === null || imgs.length < 2) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      x0 = null;
+      if (Math.abs(dx) > 40) { i = (i + (dx < 0 ? 1 : -1) + imgs.length) % imgs.length; draw(); }
+    };
+    draw();
+    showModal(photoDlg);
+  }
+
+  function stepAddon(id, d) {
+    const a = addonById(id);
+    if (!a || !state.start) return;
+    const n = Math.max(0, Math.min((state.addons[id] || 0) + d, addonAvail(a, state.start)));
+    if (n) state.addons[id] = n; else delete state.addons[id];
+    save();
+    renderAddonPicker();
+    if (d > 0 && !state.cart.length) toast('記得把衣服加入租借清單，加購會一起送出');
   }
 
   function addToCart(id) {
@@ -339,13 +434,16 @@
     const dep = items.reduce((a, p) => a + p.deposit, 0);
     const ship = shop.shippingFee || 0;
     const off = coupon ? coupon.discount : 0;
+    const extra = chosenAddons();
+    const addonSum = extra.reduce((s, x) => s + x.a.price * x.qty, 0);
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${state.start ? `${D.pretty(state.start)} ～ ${D.pretty(endOf(state.start))}` : '尚未選擇'}</dd></div>
       <div><dt>租金（${items.length} 件）</dt><dd>${money(rent)}</dd></div>
       ${off ? `<div class="discount"><dt>優惠碼 ${esc(coupon.code)}</dt><dd>− ${money(off)}</dd></div>` : ''}
+      ${extra.length ? `<div><dt>加購（${extra.reduce((s, x) => s + x.qty, 0)} 個）</dt><dd>${money(addonSum)}</dd></div>` : ''}
       <div><dt>押金</dt><dd>${money(dep)}</dd></div>
       ${ship ? `<div><dt>順豐運費</dt><dd>${money(ship)}</dd></div>` : ''}
-      <div class="total"><dt>應付總額</dt><dd>${money(rent - off + dep + ship)}</dd></div>
+      <div class="total"><dt>應付總額</dt><dd>${money(rent - off + addonSum + dep + ship)}</dd></div>
     </dl>`;
   }
 
@@ -400,7 +498,7 @@
     }
     const ids = items.map(p => p.id);
     if (state.start && !inWindow(state.start)) state.start = '';
-    const allOk = !!state.start && canStart(ids, state.start);
+    const allOk = !!state.start && canStart(ids, state.start) && addonsOk(state.start);
 
     if (state.cartStep === 'cart') {
       dlg.cart.innerHTML = head('租借清單') + `
@@ -419,12 +517,25 @@
               <button type="button" class="icon-btn" data-remove="${esc(p.id)}">移除</button>
             </div>`;
           }).join('')}
+          ${chosenAddons().map(({ a, qty }) => {
+            const bad = state.start && qty > addonAvail(a, state.start);
+            return `<div class="line addon-line ${bad ? 'bad' : ''}">
+              <button type="button" class="addon-photo" data-addon-photo="${esc(a.id)}" aria-label="放大看 ${esc(a.name)} 的照片">${imgTag(a.images[0] || placeholder({ id: a.id }), a.name, a.id)}</button>
+              <div class="line-info">
+                <span class="line-brand">加購配件</span>
+                <b>${esc(a.name)} × ${qty}</b>
+                <span>加購 ${money(a.price * qty)}</span>
+                ${bad ? '<em>這段期間不夠借了，請到商品頁減少數量或移除</em>' : ''}
+              </div>
+              <button type="button" class="icon-btn" data-remove-addon="${esc(a.id)}">移除</button>
+            </div>`;
+          }).join('')}
           ${state.start ? '' : '<p class="hint">還沒有選擇租借日期，請回到商品頁選好日期。</p>'}
           <div class="coupon-set"><span class="coupon-title">優惠碼（選填）</span><div id="coupon-box">${couponBoxHTML()}</div></div>
           <div id="order-summary">${summaryHTML(items, state.coupon)}</div>
         </div>
         <div class="dlg-foot">
-          <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '確認，填寫收件資料' : state.start ? '有衣服在這段期間無法租借' : '請先在商品頁選擇租借日期'}</button>
+          <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '確認，填寫收件資料' : !state.start ? '請先在商品頁選擇租借日期' : !canStart(ids, state.start) ? '有衣服在這段期間無法租借' : '加購配件數量不夠，請調整'}</button>
         </div>`;
       return;
     }
@@ -490,11 +601,13 @@
           refundBankCode: v('refundBankCode'), refundBank: v('refundBank'), refundAccount: v('refundAccount'), refundHolder: v('refundHolder'),
         },
         coupon: state.coupon ? state.coupon.code : '',
+        addons: chosenAddons().map(x => ({ id: x.a.id, qty: x.qty })),
         website: v('website'),
       });
       if (!r.ok) throw new Error(r.error || '送出失敗，請稍後再試');
       const phone = v('phone');
       state.cart = [];
+      state.addons = {};
       state.start = '';
       state.coupon = null;
       state.form = { name: v('name'), phone, address: v('address'), refundBankCode: v('refundBankCode'), refundBank: v('refundBank'), refundHolder: v('refundHolder') };
@@ -516,6 +629,7 @@
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${D.pretty(o.startDate)} ～ ${D.pretty(o.endDate)}</dd></div>
       ${o.items.map(p => `<div><dt>${esc(fullName(p))}${p.size ? `（${esc(p.size)}）` : ''}</dt><dd>${p.rent != null ? money(p.rent) : ''}</dd></div>`).join('')}
+      ${(o.addons || []).map(a => `<div><dt>加購 ${esc(a.name)} × ${a.qty}</dt><dd>${money(a.price * a.qty)}</dd></div>`).join('')}
       ${o.discount ? `<div class="discount"><dt>優惠碼 ${esc(o.coupon)}</dt><dd>− ${money(o.discount)}</dd></div>` : ''}
       <div><dt>押金</dt><dd>${money(o.depositTotal)}</dd></div>
       ${o.shipping ? `<div><dt>順豐運費</dt><dd>${money(o.shipping)}</dd></div>` : ''}
@@ -670,7 +784,8 @@
         <div><dt>租借起日</dt><dd>${D.full(o.startDate)}</dd></div>
         <div><dt>截止日</dt><dd>${D.full(o.endDate)}</dd></div>
         <div><dt>租借商品</dt><dd>${o.items.map(p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '')).join('<br>')}</dd></div>
-        ${o.addon ? `<div><dt>加購</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
+        ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd>${o.addons.map(a => `${esc(a.name)} × ${a.qty}`).join('<br>')}</dd></div>` : ''}
+        ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
         ${o.discount ? `<div><dt>優惠碼</dt><dd>${esc(o.coupon)}（折抵 ${money(o.discount)}）</dd></div>` : ''}
         <div><dt>應付總額</dt><dd class="amount">${money(o.total)}</dd></div>
       </dl>
@@ -728,7 +843,7 @@
   document.addEventListener('click', e => {
     const t = e.target;
     if (t.tagName === 'DIALOG') { t.close(); return; } // 點背景關閉
-    const el = t.closest('[data-close],[data-open],[data-filter],[data-product],[data-remove],[data-copy],#p-add,#to-form,#to-cart,#apply-coupon,#remove-coupon');
+    const el = t.closest('[data-close],[data-open],[data-filter],[data-product],[data-remove],[data-remove-addon],[data-addon-photo],[data-copy],#p-add,#to-form,#to-cart,#apply-coupon,#remove-coupon');
     if (!el) return;
     if (el.matches('[data-close]')) { el.closest('dialog').close(); return; }
     if (el.matches('[data-open]')) {
@@ -738,8 +853,15 @@
     }
     if (el.matches('[data-filter]')) { state.size = el.dataset.filter; renderFilters(); renderGrid(); return; }
     if (el.matches('[data-product]')) { openProduct(el.dataset.product, el.dataset.piece); return; }
+    if (el.matches('[data-addon-photo]')) { openAddonPhotos(el.dataset.addonPhoto); return; }
+    if (el.matches('[data-remove-addon]')) {
+      delete state.addons[el.dataset.removeAddon];
+      save(); renderCart();
+      return;
+    }
     if (el.matches('[data-remove]')) {
       state.cart = state.cart.filter(id => id !== el.dataset.remove);
+      if (!state.cart.length) state.addons = {};
       state.coupon = null;
       save(); updateCount(); renderGrid(); renderCart();
       return;
@@ -836,6 +958,14 @@
           { id: 'SG006', brand: '多霏', name: '我的羅曼史', size: '110', qty: 1, rent: 600, deposit: 10000, images: [] },
         ],
         bookings: merged,
+        addons: [
+          { id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, images: [] },
+          { id: 'AD002', name: '蕾絲頭紗', qty: 1, price: 200, images: [] },
+        ],
+        addonBookings: demoOrders.reduce((m, o) => {
+          (o.addons || []).forEach(a => { for (let i = 0; i < a.qty; i++) (m[a.id] = m[a.id] || []).push([o.startDate, o.endDate]); });
+          return m;
+        }, { AD002: [[D.add(t, 9), D.add(t, 14)]] }),
       };
     }
     if (req.action === 'coupon' || (req.action === 'order' && req.coupon)) {
@@ -857,6 +987,9 @@
       if (taken.length) return { ok: false, error: `很抱歉，${taken.map(p => '「' + fullName(p) + '」').join('、')}在這段期間剛好被預約了。` };
       const rentTotal = items.reduce((a, p) => a + p.rent, 0);
       const depositTotal = items.reduce((a, p) => a + p.deposit, 0);
+      const extra = (req.addons || []).map(x => Object.assign({}, addonById(x.id), { qty: x.qty }));
+      for (const a of extra) if (a.qty > addonAvail(addonById(a.id), req.startDate)) return { ok: false, error: `很抱歉，加購的「${a.name}」在這段期間不夠借了，請減少數量或移除。` };
+      const addonTotal = extra.reduce((s, a) => s + a.price * a.qty, 0);
       const order = {
         no: 'SG' + t.slice(5).replace(/-/g, '') + '-' + Array.from({ length: 4 }, () => '23456789ABCDEFGHJKMNPQRSTUVWXYZ'[Math.floor(Math.random() * 31)]).join(''),
         status: '待付款', startDate: req.startDate, endDate: endOf(req.startDate),
@@ -864,7 +997,8 @@
         rentTotal, depositTotal, shipping: 0,
         coupon: req.demoCoupon ? req.demoCoupon.code : '', couponLabel: req.demoCoupon ? req.demoCoupon.label : '',
         discount: req.demoCoupon ? req.demoCoupon.discount : 0,
-        total: rentTotal - (req.demoCoupon ? req.demoCoupon.discount : 0) + depositTotal,
+        addons: extra.map(a => ({ id: a.id, name: a.name, price: a.price, qty: a.qty })), addonTotal,
+        total: rentTotal - (req.demoCoupon ? req.demoCoupon.discount : 0) + addonTotal + depositTotal,
         deadline: new Date(Date.now() + 24 * 36e5).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
         name: req.customer.name, phone: req.customer.phone, addon: '', remit: null,
       };
