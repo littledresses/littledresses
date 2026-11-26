@@ -66,6 +66,7 @@
     tab: '',
     q: '',
     pick: [], // 待出貨分頁勾選要合併出貨的訂單編號
+    extraMenu: [], // 試算表「加購選單」的類別
     open: {}, // 展開中的操作表單 { 訂單編號: 'reject' | 'cancel' | ... }
     busy: false,
   };
@@ -99,6 +100,7 @@
       throw err;
     }
     state.orders = r.orders || [];
+    if (r.extraMenu) state.extraMenu = r.extraMenu;
     return r;
   }
 
@@ -258,6 +260,11 @@
         <div><dt>地址</dt><dd>${esc(o.address)} <button type="button" class="copy" data-copy="${esc(o.address)}">複製</button></dd></div>
         ${o.note ? `<div><dt>客戶備註</dt><dd class="pre">${esc(o.note)}</dd></div>` : ''}
         ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
+        ${o.extras && o.extras.length ? `<div><dt>手動加購</dt><dd class="adm-extras">${o.extras.map((x, i) => `<div>
+          ${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener" class="adm-extra-img"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}
+          <span>${x.category ? `<b class="adm-extra-cat">${esc(x.category)}</b>` : ''}${esc(x.note)}<small>租金 ${money(x.rent)}・押金 ${money(x.deposit)}</small></span>
+          ${o.status === '待付款' ? `<span class="adm-extra-ops"><label class="link-btn">${x.image ? '換圖片' : '加圖片'}<input type="file" accept="image/*" data-extra-img="${i}" hidden></label><button type="button" class="link-btn" data-op="removeExtra" data-idx="${i}">刪除</button></span>` : ''}
+        </div>`).join('')}</dd></div>` : ''}
         ${o.tracking ? `<div><dt>順豐單號</dt><dd><span class="mono">${esc(o.tracking)}</span> <button type="button" class="copy" data-copy="${esc(o.tracking)}">複製</button></dd></div>` : ''}
         ${o.status === '檢查中' && o.returnedAt ? `<div><dt>收到歸還</dt><dd>${pretty(o.returnedAt)}</dd></div>` : ''}
         ${o.status === '已歸還' || o.status === '已退押金' || (o.status === '待退款' && o.cancelRefund == null) ? `<div><dt>驗收</dt><dd>${o.deduct ? `扣款 ${money(o.deduct)}<small class="pre">${esc(o.deductReason)}</small>` : '衣服完好'}</dd></div>` : ''}
@@ -285,8 +292,19 @@
       case '待付款':
         if (open === 'reject') return form('rejectPay', `<label>要告訴客戶的話（客戶查詢時看得到）<textarea name="message" rows="2" maxlength="200" required>還沒看到這筆款項入帳，請確認匯款帳號和金額，或私訊我們。</textarea></label>`, '送出查帳結果');
         if (open === 'cancel') return cancelForm(form);
+        if (open === 'extra') return form('addExtra', `
+          ${state.extraMenu.length ? `<label>加購類別<select name="category" required><option value="">請選擇</option>${state.extraMenu.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>` : ''}
+          <label>加購說明（客戶查詢時看得到）<input name="note" required maxlength="100" placeholder="例如：白色小皮鞋 15cm"></label>
+          <div class="form-row">
+            <label>租金（選填）<input name="rent" inputmode="numeric" placeholder="0"></label>
+            <label>押金（選填）<input name="deposit" inputmode="numeric" placeholder="0"></label>
+          </div>
+          <label>圖片（選填）<input type="file" name="image" accept="image/*"><small>可以拍照、從相簿選，或在電腦上直接貼上（⌘V）圖片</small></label>
+          <div class="adm-extra-preview" hidden></div>
+          <p class="hint">加入後，應付總額會加上租金和押金。可以加好幾項，一次加一項。</p>`, '加入');
         return `<div class="adm-actions">
-          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : ''}
+          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : btn('confirmPay', '✓ 已收到款項', 'primary')}
+          ${btn('extra', '＋ 加購項目')}
           ${btn('cancel', '取消訂單', 'ghost')}
         </div>`;
       case '已付款':
@@ -401,6 +419,18 @@
     const fd = new FormData(f);
     const v = k => String(fd.get(k) || '').trim();
     switch (f.dataset.submit) {
+      case 'addExtra': {
+        const amt = k => Number(v(k).replace(/[^\d]/g, '')) || 0;
+        if (state.extraMenu.length && !v('category')) { toast('請選加購類別'); return; }
+        if (!v('note')) { toast('請寫加購說明'); return; }
+        const file = f._pasted || (f.image && f.image.files[0]);
+        let image = '';
+        if (file) {
+          try { image = await shrinkImage(file); } catch (err) { toast(err.message); return; }
+        }
+        runOp(no, 'addExtra', { category: v('category'), note: v('note'), rent: amt('rent'), deposit: amt('deposit'), image }, '已加入加購項目');
+        break;
+      }
       case 'rejectPay': runOp(no, 'rejectPay', { message: v('message') }, '已回覆查帳結果'); break;
       case 'shipMany': {
         const tracking = v('tracking').replace(/\s/g, '').toUpperCase();
@@ -462,6 +492,14 @@
       if (await ask('已經在銀行確認這筆款項入帳了嗎？', '確認收款')) runOp(no, 'confirmPay', {}, '已確認收款');
       return;
     }
+    if (op === 'removeExtra') {
+      const o = state.orders.find(x => x.no === no);
+      const x = o && o.extras[Number(t.dataset.idx)];
+      if (x && await ask(`刪除手動加購「${x.category ? x.category + '・' : ''}${x.note}」？應付總額會扣掉租金 ${money(x.rent)}、押金 ${money(x.deposit)}。`, '刪除')) {
+        runOp(no, 'removeExtra', { index: Number(t.dataset.idx) }, '已刪除加購項目');
+      }
+      return;
+    }
     if (op === 'received') {
       if (await ask('確定已經收到客戶寄回的衣服了嗎？', '已收到')) runOp(no, 'received', {}, '已收到歸還，請檢查衣服');
       return;
@@ -473,7 +511,64 @@
 
   // 記下哪個表單動過，切回 App 時不要自動重新整理
   ['input', 'change'].forEach(t => document.addEventListener(t, e => { const f = e.target.closest && e.target.closest('form[data-submit]'); if (f) f.dataset.dirty = '1'; }));
-  document.addEventListener('change', e => {
+  // 手動加購圖片：先在手機上縮小（最長邊 1200px 的 JPEG）再上傳，省流量也比較快
+  async function shrinkImage(file) {
+    if (!/^image\//.test(file.type || 'image/')) throw new Error('請選一張圖片');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('讀不到這張圖片，請換一張')); i.src = url; });
+      const k = Math.min(1, 1200 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k);
+      c.height = Math.round(img.naturalHeight * k);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.82);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  function showExtraPreview(f, file) {
+    const box = f.querySelector('.adm-extra-preview');
+    if (!box) return;
+    if (box.dataset.url) URL.revokeObjectURL(box.dataset.url);
+    if (!file) { box.hidden = true; box.innerHTML = ''; return; }
+    box.dataset.url = URL.createObjectURL(file);
+    box.innerHTML = `<img src="${box.dataset.url}" alt="">`;
+    box.hidden = false;
+  }
+  // 電腦上可以直接貼上圖片（打開「加購項目」表單時）
+  document.addEventListener('paste', e => {
+    const f = document.querySelector('form[data-submit="addExtra"]');
+    if (!f) return;
+    const item = [...((e.clipboardData && e.clipboardData.items) || [])].find(x => x.type.startsWith('image/'));
+    if (!item) return;
+    e.preventDefault();
+    f._pasted = item.getAsFile();
+    if (f.image) f.image.value = '';
+    showExtraPreview(f, f._pasted);
+    toast('已貼上圖片');
+  });
+
+  document.addEventListener('change', async e => {
+    if (e.target.name === 'image' && e.target.closest('form[data-submit="addExtra"]')) {
+      const f = e.target.closest('form');
+      f._pasted = null;
+      showExtraPreview(f, e.target.files[0]);
+      return;
+    }
+    if (e.target.dataset.extraImg != null) {
+      const file = e.target.files[0];
+      const no = e.target.closest('.adm-card').dataset.no;
+      if (!file) return;
+      try {
+        const image = await shrinkImage(file);
+        runOp(no, 'setExtraImage', { index: Number(e.target.dataset.extraImg), image }, '已更新圖片');
+      } catch (err) { toast(err.message); }
+      return;
+    }
     if (e.target.dataset.pick) {
       const no = e.target.dataset.pick;
       state.pick = e.target.checked ? state.pick.concat(no) : state.pick.filter(x => x !== no);
@@ -598,6 +693,18 @@
     const now = new Date(Date.now() + 8 * 36e5).toISOString().slice(5, 16).replace('-', '/').replace('T', ' ');
     const log = text => { o.log = (o.log ? o.log + '\n' : '') + `${now} ${name}：${text}`; };
     switch (req.op) {
+      case 'setExtraImage': o.extras[req.index].image = req.image; log('更換手動加購圖片：' + o.extras[req.index].note); break;
+      case 'addExtra':
+        o.extras = (o.extras || []).concat([{ category: req.category || '', note: req.note, rent: req.rent, deposit: req.deposit, image: req.image || '' }]);
+        o.addonTotal = (o.addonTotal || 0) + req.rent; o.depositTotal += req.deposit; o.total += req.rent + req.deposit;
+        log(`手動加購：${req.note}（租金 ${req.rent}／押金 ${req.deposit}）`);
+        break;
+      case 'removeExtra': {
+        const x = o.extras.splice(req.index, 1)[0];
+        o.addonTotal -= x.rent; o.depositTotal -= x.deposit; o.total -= x.rent + x.deposit;
+        log('刪除手動加購：' + x.note);
+        break;
+      }
       case 'confirmPay': o.status = '已付款'; o.payNote = ''; log('確認收款'); break;
       case 'rejectPay': o.payNote = req.message; log('查無款項：' + req.message); break;
       case 'ship':
@@ -632,7 +739,7 @@
       }
     }
     demo.forEach(x => { x.paid = x.remit ? x.remit.amount : x.total; });
-    return { ok: true, name, orders: demo };
+    return { ok: true, name, orders: demo, extraMenu: ['髮帶', '髮圈', '頭紗', '鞋子'] };
   }
 
   // ───────── 啟動 ─────────

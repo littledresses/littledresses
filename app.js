@@ -685,6 +685,14 @@
   }
 
   function paymentHTML(o, bank, phone) {
+    // 後台「顯示匯款資訊」填「否」：不顯示帳號和回報表單，只顯示付款說明
+    if (bank && bank.hidden) {
+      return `<div class="pay-box">
+      <h3>付款方式</h3>
+      <p class="notice-text">${esc(bank.message || '我們會盡快與您聯繫，提供付款方式。')}</p>
+      <p class="hint">應付總額 <span class="amount">${money(o.total)}</span></p>
+    </div>`;
+    }
     return `<div class="pay-box">
       <h3>匯款資訊</h3>
       <dl class="bank">
@@ -879,6 +887,7 @@
         <div><dt>租借商品</dt><dd>${o.items.map(p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '')).join('<br>')}</dd></div>
         ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd>${o.addons.map(a => `${esc(a.name)} × ${a.qty}`).join('<br>')}</dd></div>` : ''}
         ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
+        ${o.extras && o.extras.length ? `<div><dt>${(o.addons && o.addons.length) || o.addon ? '其他加購' : '加購'}</dt><dd class="extras">${o.extras.map(x => `<div>${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}<span>${x.category ? esc(x.category) + '・' : ''}${esc(x.note)}<br><small>租金 ${money(x.rent)}・押金 ${money(x.deposit)}</small></span></div>`).join('')}</dd></div>` : ''}
         ${o.discount ? `<div><dt>優惠碼</dt><dd>${esc(o.coupon)}（折抵 ${money(o.discount)}）</dd></div>` : ''}
         <div><dt>應付總額</dt><dd class="amount">${money(o.total)}</dd></div>
       </dl>
@@ -1026,7 +1035,9 @@
       total: 10750, addon: '珍珠髮箍 ×1（加購 NT$ 150，已含在應付總額內）\n白色小皮鞋 15cm 借用', remit: { name: '陳小美', bank: '中國信託', date: D.add(t, -1), amount: 10750, last5: '13579', confirmed: true },
     }];
   })();
-  const DEMO_BANK = { bankName: '範例銀行', bankCode: '000', account: '0000-0000-0000', holder: '蒔光衣櫥' };
+  // 示範模式跟正式後台預設一樣：不顯示匯款帳號（要看有帳號的畫面，把 hidden 拿掉）
+  const DEMO_SHOW_ADDONS = false;
+  const DEMO_BANK = { hidden: true, message: '訂單成立後，我們會盡快與您聯繫，提供匯款方式與付款期限。請留意訊息，謝謝您 ✦', bankName: '範例銀行', bankCode: '000', account: '0000-0000-0000', holder: '蒔光衣櫥' };
   function demoHandle(req) {
     const t = D.today();
     if (req.action === 'catalog') {
@@ -1053,7 +1064,8 @@
           { id: 'SG006', brand: '多霏', name: '我的羅曼史', size: '110', qty: 1, rent: 600, deposit: 10000, images: [] },
         ],
         bookings: merged,
-        addons: [
+        // 跟正式後台預設一樣（設定「前台顯示加購」＝否）：前台不顯示加購；要看加購畫面把 DEMO_SHOW_ADDONS 改成 true
+        addons: !DEMO_SHOW_ADDONS ? [] : [
           { id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, deposit: 300, images: [] },
           { id: 'AD002', name: '蕾絲頭紗', qty: 1, price: 200, deposit: 0, images: [] },
         ],
