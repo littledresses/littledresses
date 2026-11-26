@@ -775,15 +775,16 @@
     }
   }
 
-  // 寄出前可以修改姓名、電話、收件地址（留空的欄位不修改）
+  // 寄出前可以修改姓名、電話、收件地址：帶入原本的資料，送出後以表單內容為準
   function contactFormHTML(o, phone) {
+    const c = o.contact || {};
     return `<details class="contact-edit">
       <summary>修改收件資料</summary>
       <form class="form contact-form" data-no="${esc(o.no)}" data-phone="${esc(phone)}">
-        <p class="hint">寄出前都可以修改，只要填寫要改的欄位，留空的不會變動。</p>
-        <label>姓名<input name="name" maxlength="50" autocomplete="name" placeholder="新的收件人姓名"></label>
-        <label>電話<input name="newPhone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" placeholder="新的電話"><small>改了電話之後，查詢紀錄要用新的電話。</small></label>
-        <label>收件地址<input name="address" maxlength="200" autocomplete="street-address" placeholder="新的收件地址，或順豐服務站名稱"></label>
+        <p class="hint">寄出前都可以修改，儲存後以下面的資料為準。</p>
+        <label><span>姓名 <span class="req">*</span></span><input name="name" required maxlength="50" autocomplete="name" value="${esc(c.name)}"></label>
+        <label><span>電話 <span class="req">*</span></span><input name="newPhone" type="tel" required inputmode="tel" maxlength="30" autocomplete="tel" value="${esc(c.phone || phone)}"><small>改了電話之後，查詢紀錄要用新的電話。</small></label>
+        <label><span>收件地址 <span class="req">*</span></span><input name="address" required maxlength="200" autocomplete="street-address" placeholder="收件地址，或順豐服務站名稱" value="${esc(c.address)}"></label>
         <button type="submit" class="btn primary block">儲存修改</button>
       </form>
     </details>`;
@@ -793,8 +794,8 @@
     const fd = new FormData(form);
     const v = k => String(fd.get(k) || '').trim();
     const data = { name: v('name'), newPhone: v('newPhone'), address: v('address') };
-    if (!data.name && !data.newPhone && !data.address) { toast('請填寫要修改的欄位'); return; }
-    if (data.newPhone && data.newPhone.replace(/\D/g, '').length < 8) { toast('請輸入正確的電話號碼'); return; }
+    if (!data.name || !data.newPhone || !data.address) { toast('姓名、電話、收件地址都要填寫'); return; }
+    if (data.newPhone.replace(/\D/g, '').length < 8) { toast('請輸入正確的電話號碼'); return; }
     const btn = form.querySelector('button[type="submit"]');
     btn.disabled = true;
     btn.textContent = '儲存中…';
@@ -805,11 +806,12 @@
       // 電話改了的話，這台裝置記住的訂單也換成新電話
       const saved = state.orders.find(s => sameNo(s.no, no));
       if (saved) { saved.phone = r.phone; save(); }
-      if (data.newPhone && state.form.phone && state.form.phone.replace(/\D/g, '') === form.dataset.phone.replace(/\D/g, '')) { state.form.phone = r.phone; save(); }
+      if (state.form.phone && state.form.phone.replace(/\D/g, '') === form.dataset.phone.replace(/\D/g, '')) { state.form.phone = r.phone; save(); }
       const fresh = await apiPost({ action: 'lookup', phone: r.phone, no });
       const card = form.closest('.record');
       if (fresh.ok && card) card.outerHTML = recordHTML(fresh.orders[0], fresh.bank, r.phone);
-      toast(r.changed ? (data.newPhone ? '已修改，之後查詢請用新的電話' : '已修改收件資料') : '資料沒有變動');
+      const phoneChanged = r.phone.replace(/\D/g, '') !== form.dataset.phone.replace(/\D/g, '');
+      toast(!r.changed ? '資料沒有變動' : phoneChanged ? '已修改，之後查詢請用新的電話' : '已修改收件資料');
     } catch (e) {
       toast(e.message || '儲存失敗，請稍後再試');
       btn.disabled = false;
@@ -1065,9 +1067,7 @@
       const o = demoOrders.find(x => sameNo(x.no, req.no) && digits(x.phone) === digits(req.phone));
       if (!o) return { ok: false, error: '查不到這筆訂單' };
       if (!['待付款', '已付款'].includes(o.status)) return { ok: false, error: '這筆訂單已經寄出或結束，收件資料不能修改了。' };
-      if (req.name) o.name = req.name;
-      if (req.newPhone) o.phone = req.newPhone;
-      if (req.address) o.address = req.address;
+      o.name = req.name; o.phone = req.newPhone; o.address = req.address;
       return { ok: true, phone: o.phone, changed: true };
     }
     // 跟正式後台一樣：要電話＋訂單編號都對，姓名、電話、地址遮掉一部分
@@ -1077,8 +1077,9 @@
     const ph = digits(o.phone);
     const view = Object.assign({}, o, {
       name: mask(o.name), phone: ph.slice(0, 4) + '-***-' + ph.slice(-3),
-      address: o.address && o.address.length > 6 ? o.address.slice(0, 6) + '＊＊＊' : (o.address || ''),
+      address: o.address || '',
       canEditContact: ['待付款', '已付款'].includes(o.status),
+      contact: ['待付款', '已付款'].includes(o.status) ? { name: o.name, phone: o.phone, address: o.address || '' } : null,
       remit: o.remit && Object.assign({}, o.remit, { name: mask(o.remit.name) }),
     });
     return { ok: true, orders: [view], bank: DEMO_BANK };
