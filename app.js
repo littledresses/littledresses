@@ -546,7 +546,7 @@
       <form class="dlg-body form" id="order-form" novalidate>
         <label><span>姓名 <span class="req">*</span></span><input name="name" required maxlength="50" autocomplete="name" value="${esc(f.name)}"></label>
         <label><span>電話 <span class="req">*</span></span><input name="phone" type="tel" required inputmode="tel" maxlength="20" autocomplete="tel" placeholder="09xx-xxx-xxx" value="${esc(f.phone)}"><small>之後用這支電話查詢租借紀錄</small></label>
-        <label><span>順豐收件地址 <span class="req">*</span></span><textarea name="address" required rows="2" maxlength="200" autocomplete="street-address" placeholder="收件地址，或順豐服務站名稱">${esc(f.address)}</textarea></label>
+        <label><span>收件地址 <span class="req">*</span></span><input name="address" required maxlength="200" autocomplete="street-address" placeholder="收件地址，或順豐服務站名稱" value="${esc(f.address)}"></label>
         <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="需要加購或借配件（例如髮飾、頭紗、鞋子），請寫在這裡">${esc(f.note)}</textarea><small>加購內容由我們確認後，會顯示在租借紀錄中</small></label>
         <fieldset class="refund-set">
           <legend>退押金帳戶 <span class="req">*</span></legend>
@@ -579,7 +579,7 @@
     const v = k => String(fd.get(k) || '').trim();
     const problem = !v('name') ? '請填寫姓名'
       : v('phone').replace(/\D/g, '').length < 8 ? '請填寫正確的電話號碼'
-      : !v('address') ? '請填寫順豐收件地址'
+      : !v('address') ? '請填寫收件地址'
       : !/^\d{3}$/.test(v('refundBankCode')) ? '請填寫 3 碼的退押金銀行代碼'
       : !v('refundBank') ? '請填寫退押金的銀行名稱'
       : v('refundAccount').replace(/\D/g, '').length < 6 ? '請填寫正確的退押金帳號'
