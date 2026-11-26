@@ -29,6 +29,7 @@
   let bookings = {};
   let addons = [];        // 加購配件（跟衣服一起借出、一起歸還；押金跟衣服的押金合在一起）
   let addonBookings = {}; // { 加購編號: [[起日, 迄日], ...] }，借幾個就有幾段
+  let periods = [];       // 特殊檔期（例如過年）：{ name, type: 'slot'|'block', start, end, openDate, mult, add }
   const state = {
     cart: store.get('sg_cart', []),
     addons: store.get('sg_addons', {}), // 選了哪些加購 { 加購編號: 數量 }，整張訂單共用
@@ -55,10 +56,37 @@
   };
 
   // ───────── 檔期計算 ─────────
-  const endOf = start => D.add(start, shop.rentalDays);
+  // 特殊檔期：固定檔期（例如過年）起日只能選開始日期、迄日固定、租金另計；禁止預約的日期租期不能碰到
+  // （slotAt、rentOf、startProblem 跟後台 Code.gs 的 slotAt、rentFor、startProblem 是同一套規則，兩邊要一起改）
+  const slotAt = start => periods.find(p => p.type === 'slot' && p.start === start) || null;
+  const endOf = start => { const sl = slotAt(start); return sl ? sl.end : D.add(start, shop.rentalDays); };
+  const rentOf = (p, start) => { const sl = start && slotAt(start); return sl ? Math.round(p.rent * sl.mult + sl.add) : p.rent; };
   const minStart = () => D.add(D.today(), shop.minLeadDays);
   const maxStart = () => D.add(D.today(), shop.maxAheadDays);
-  const inWindow = s => s >= minStart() && s <= maxStart();
+  // 日曆最遠可以翻到哪個月：平常的最多預約天數，或更遠的固定檔期
+  const lastStart = () => periods.filter(p => p.type === 'slot').reduce((m, p) => (p.start > m ? p.start : m), maxStart());
+  function startProblem(s) {
+    if (s < minStart()) return 'soon';
+    const sl = slotAt(s);
+    if (sl) { if (sl.openDate && D.today() < sl.openDate) return 'notOpen'; }
+    else if (s > maxStart()) return 'far';
+    const end = endOf(s);
+    const hit = periods.find(p => p !== sl && p.start <= end && s <= p.end);
+    return hit ? (hit.type === 'block' ? 'blocked' : 'slot') : '';
+  }
+  const inWindow = s => !startProblem(s);
+  const priceNote = p => {
+    const parts = [p.mult !== 1 ? `租金 × ${p.mult}` : '', p.add ? `每件加 ${money(p.add)}` : ''].filter(Boolean);
+    return parts.length ? parts.join('，') : '租金不變';
+  };
+  // 商品頁日曆下方：列出還沒結束的特殊檔期（piece 有給的話直接算出這件的檔期租金）
+  function periodNotesHTML(piece) {
+    const list = periods.filter(p => p.end >= D.today());
+    if (!list.length) return '';
+    return `<ul class="period-notes">${list.map(p => p.type === 'slot'
+      ? `<li><b>✦ ${esc(p.name)}</b>：${D.pretty(p.start)} 起 ～ ${D.pretty(p.end)} 止（固定檔期）<br>${piece ? `這件租金 ${money(rentOf(piece, p.start))}` : priceNote(p)}${p.openDate && D.today() < p.openDate ? `・<em>${D.pretty(p.openDate)} 開放預約</em>` : ''}</li>`
+      : `<li><b>${esc(p.name)}</b>：${D.pretty(p.start)} ～ ${D.pretty(p.end)} 暫停租借，租期不能碰到這幾天</li>`).join('')}</ul>`;
+  }
   // 同款同尺寸有 qty 件：每筆租借佔用一件 [起日, 迄日＋間隔天數]，同一天同時佔用的件數加上這次要借的 need 件不能超過 qty
   // （跟後台 Code.gs 的 canBook 是同一套算法，兩邊要一起改）
   function canBook(ranges, qty, start, end, gap, need) {
@@ -130,6 +158,7 @@
     bookings = r.bookings || {};
     addons = r.addons || [];
     addonBookings = r.addonBookings || {};
+    periods = r.periods || [];
     buildStyles();
     state.cart = state.cart.filter(id => byId(id));
     Object.keys(state.addons).forEach(id => { if (!addonById(id) || !state.cart.length) delete state.addons[id]; });
@@ -201,10 +230,10 @@
   // ───────── 日曆 ─────────
   function calendar(container, { isSelectable, isTaken, selected, onPick }) {
     let first = minStart();
-    while (first < maxStart() && !isSelectable(first)) first = D.add(first, 1);
+    while (first < lastStart() && !isSelectable(first)) first = D.add(first, 1);
     let view = (selected || first).slice(0, 7);
     const firstView = D.today().slice(0, 7);
-    const lastView = maxStart().slice(0, 7);
+    const lastView = lastStart().slice(0, 7);
     function draw() {
       const [y, m] = view.split('-').map(Number);
       const startDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
@@ -214,11 +243,15 @@
       for (let d = 1; d <= days; d++) {
         const ds = `${view}-${String(d).padStart(2, '0')}`;
         const ok = isSelectable(ds);
+        const sl = slotAt(ds);
+        const blocked = periods.some(p => p.type === 'block' && p.start <= ds && ds <= p.end);
         const cls = ['day', ok ? 'ok' : '', !ok && isTaken && inWindow(ds) && isTaken(ds) ? 'taken' : '',
+          sl ? 'slot' : '', sl && startProblem(ds) === 'notOpen' ? 'soon' : '', blocked ? 'blocked' : '',
           selected && ds === selected ? 'sel' : '',
           selected && ds > selected && ds <= selEnd ? 'range' : '',
           selected && ds === selEnd ? 'range-end' : ''].filter(Boolean).join(' ');
-        cells += `<button type="button" class="${cls}" data-day="${ds}" ${ok ? '' : 'disabled'} aria-label="${ds}">${d}</button>`;
+        const tip = sl ? `${sl.name}${sl.openDate && D.today() < sl.openDate ? `，${D.pretty(sl.openDate)} 開放預約` : ''}` : blocked ? '暫停租借' : '';
+        cells += `<button type="button" class="${cls}" data-day="${ds}" ${ok ? '' : 'disabled'} aria-label="${ds}${tip ? ' ' + tip : ''}"${tip ? ` title="${esc(tip)}"` : ''}>${d}</button>`;
       }
       container.innerHTML = `
         <div class="cal">
@@ -233,6 +266,7 @@
             <span><i style="background:var(--rose-deep)"></i>起日</span>
             <span><i style="background:var(--rose-soft)"></i>租借期間</span>
             <span><i style="background:#e6dcd3"></i>不可選</span>
+            ${periods.some(p => p.type === 'slot') ? '<span><i class="lg-slot"></i>固定檔期起日</span>' : ''}
           </div>
         </div>`;
     }
@@ -246,7 +280,8 @@
   }
 
   function rangeText(start) {
-    return `<b>${D.pretty(start)}</b> 起 ～ <b>${D.pretty(endOf(start))}</b> 止`;
+    const sl = slotAt(start);
+    return `<b>${D.pretty(start)}</b> 起 ～ <b>${D.pretty(endOf(start))}</b> 止${sl ? ` <span class="slot-tag">${esc(sl.name)}</span>` : ''}`;
   }
 
   // ───────── 商品詳情 ─────────
@@ -284,18 +319,22 @@
       const locked = !!state.start && cartItems().some(x => x.id !== piece.id);
       el.innerHTML = `
         <div class="price-row" style="margin-top:14px">
-          <div class="rent"><span>租金（每次）</span><b>${money(piece.rent)}</b></div>
+          <div class="rent" id="p-rent"><span>租金（每次）</span><b>${money(piece.rent)}</b></div>
           <div><span>押金</span><b>${money(piece.deposit)}</b></div>
         </div>
         <h3 class="sec-title">選擇租借日期</h3>
         <p class="hint">${locked ? '同一張訂單的租借期間相同，已固定為租借清單的日期。要換日期，請先移除清單裡的衣服。' : `點選起日，迄日自動為起日＋${shop.rentalDays} 天。`}</p>
         <div id="p-cal"></div>
+        ${periodNotesHTML(piece)}
         <div id="p-status"></div>
         <div id="p-addons"></div>`;
       const p = piece;
       const showStatus = () => {
         const box = $('#p-status', dlg.product);
         const free = !!state.start && canStart([p.id], state.start);
+        // 選到固定檔期時，租金換成檔期租金
+        const sl = state.start && slotAt(state.start);
+        $('#p-rent', dlg.product).innerHTML = `<span>租金（${sl ? esc(sl.name) : '每次'}）</span><b>${money(rentOf(p, state.start))}</b>`;
         if (state.cart.includes(p.id)) { btn.disabled = false; btn.textContent = '已在清單・前往結帳'; }
         else { btn.disabled = !free; btn.textContent = free ? '加入租借清單' : state.start ? '這段期間無法租借' : '請先選擇租借日期'; }
         if (!state.start) { box.innerHTML = ''; renderAddonPicker(); return; }
@@ -430,8 +469,9 @@
   }
 
   function summaryHTML(items, coupon) {
-    const rent = items.reduce((a, p) => a + p.rent, 0);
+    const rent = items.reduce((a, p) => a + rentOf(p, state.start), 0);
     const dep = items.reduce((a, p) => a + p.deposit, 0);
+    const sl = state.start && slotAt(state.start);
     const ship = shop.shippingFee || 0;
     const off = coupon ? coupon.discount : 0;
     const extra = chosenAddons();
@@ -439,8 +479,8 @@
     const addonDep = extra.reduce((s, x) => s + (x.a.deposit || 0) * x.qty, 0);
     const depAll = dep + addonDep;
     return `<dl class="summary">
-      <div><dt>租借期間</dt><dd>${state.start ? `${D.pretty(state.start)} ～ ${D.pretty(endOf(state.start))}` : '尚未選擇'}</dd></div>
-      <div><dt>租金（${items.length} 件）</dt><dd>${money(rent)}</dd></div>
+      <div><dt>租借期間</dt><dd>${state.start ? `${D.pretty(state.start)} ～ ${D.pretty(endOf(state.start))}` : '尚未選擇'}${sl ? `<br><span class="slot-tag">${esc(sl.name)}</span>` : ''}</dd></div>
+      <div><dt>租金（${items.length} 件${sl ? '・' + esc(sl.name) : ''}）</dt><dd>${money(rent)}</dd></div>
       ${off ? `<div class="discount"><dt>優惠碼 ${esc(coupon.code)}</dt><dd>− ${money(off)}</dd></div>` : ''}
       ${extra.length ? `<div><dt>加購（${extra.reduce((s, x) => s + x.qty, 0)} 個）</dt><dd>${money(addonSum)}</dd></div>` : ''}
       <div><dt>押金${addonDep ? '（含加購）' : ''}</dt><dd>${money(depAll)}</dd></div>
@@ -478,7 +518,7 @@
     btn.disabled = true;
     btn.textContent = '檢查中…';
     try {
-      const r = await apiPost({ action: 'coupon', code, items: state.cart });
+      const r = await apiPost({ action: 'coupon', code, items: state.cart, startDate: state.start });
       if (!r.ok) throw new Error(r.error || '這個優惠碼不能使用');
       state.coupon = { code: r.code, label: r.label, discount: r.discount, personal: !!r.personal };
       refreshCoupon();
@@ -513,7 +553,7 @@
                 ${p.brand ? `<span class="line-brand">${esc(p.brand)}</span>` : ''}
                 <b>${esc(p.name)}</b>
                 <span>${esc(p.size ? '尺寸 ' + p.size : p.id)}</span>
-                <span>租金 ${money(p.rent)}・押金 ${money(p.deposit)}</span>
+                <span>租金 ${money(rentOf(p, state.start))}・押金 ${money(p.deposit)}</span>
                 ${bad ? '<em>這件在所選期間已被預約，請移除</em>' : ''}
               </div>
               <button type="button" class="icon-btn" data-remove="${esc(p.id)}">移除</button>
@@ -629,7 +669,7 @@
 
   function orderSummaryHTML(o) {
     return `<dl class="summary">
-      <div><dt>租借期間</dt><dd>${D.pretty(o.startDate)} ～ ${D.pretty(o.endDate)}</dd></div>
+      <div><dt>租借期間</dt><dd>${D.pretty(o.startDate)} ～ ${D.pretty(o.endDate)}${o.period ? `<br><span class="slot-tag">${esc(o.period)}</span>` : ''}</dd></div>
       ${o.items.map(p => `<div><dt>${esc(fullName(p))}${p.size ? `（${esc(p.size)}）` : ''}</dt><dd>${p.rent != null ? money(p.rent) : ''}</dd></div>`).join('')}
       ${(o.addons || []).map(a => `<div><dt>加購 ${esc(a.name)} × ${a.qty}</dt><dd>${money(a.price * a.qty)}</dd></div>`).join('')}
       ${o.discount ? `<div class="discount"><dt>優惠碼 ${esc(o.coupon)}</dt><dd>− ${money(o.discount)}</dd></div>` : ''}
@@ -828,6 +868,7 @@
         <div><dt>姓名</dt><dd>${esc(o.name)}</dd></div>
         <div><dt>電話</dt><dd>${esc(o.phone)}</dd></div>
         ${o.address ? `<div><dt>收件地址</dt><dd>${esc(o.address)}</dd></div>` : ''}
+        ${o.period ? `<div><dt>檔期</dt><dd><span class="slot-tag">${esc(o.period)}</span></dd></div>` : ''}
         <div><dt>租借起日</dt><dd>${D.full(o.startDate)}</dd></div>
         <div><dt>截止日</dt><dd>${D.full(o.endDate)}</dd></div>
         <div><dt>租借商品</dt><dd>${o.items.map(p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '')).join('<br>')}</dd></div>
@@ -1011,6 +1052,11 @@
           { id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, deposit: 300, images: [] },
           { id: 'AD002', name: '蕾絲頭紗', qty: 1, price: 200, deposit: 0, images: [] },
         ],
+        periods: [
+          { name: '過年檔（示範）', type: 'slot', start: D.add(t, 60), end: D.add(t, 68), openDate: '', mult: 1.5, add: 0 },
+          { name: '順豐停運（示範）', type: 'block', start: D.add(t, 75), end: D.add(t, 78), openDate: '', mult: 1, add: 0 },
+          { name: '春假檔（示範）', type: 'slot', start: D.add(t, 100), end: D.add(t, 106), openDate: D.add(t, 10), mult: 1, add: 200 },
+        ],
         addonBookings: demoOrders.reduce((m, o) => {
           (o.addons || []).forEach(a => { for (let i = 0; i < a.qty; i++) (m[a.id] = m[a.id] || []).push([o.startDate, o.endDate]); });
           return m;
@@ -1020,7 +1066,7 @@
     if (req.action === 'coupon' || (req.action === 'order' && req.coupon)) {
       // 示範優惠碼：WELCOME100（共用，折 100）、VIP9（限 0912345678，租金 9 折）
       const code = String((req.action === 'coupon' ? req.code : req.coupon) || '').toUpperCase().replace(/\s+/g, '');
-      const rent = (req.items || []).map(byId).filter(Boolean).reduce((a, p) => a + p.rent, 0);
+      const rent = (req.items || []).map(byId).filter(Boolean).reduce((a, p) => a + rentOf(p, req.startDate), 0);
       const ph = String((req.customer && req.customer.phone) || req.phone || '').replace(/\D/g, '');
       let c = null;
       if (code === 'WELCOME100') c = { code, label: '折 NT$ 100', discount: Math.min(100, rent) };
@@ -1034,7 +1080,7 @@
       const items = req.items.map(byId);
       const taken = items.filter(p => !isFree(p.id, req.startDate));
       if (taken.length) return { ok: false, error: `很抱歉，${taken.map(p => '「' + fullName(p) + '」').join('、')}在這段期間剛好被預約了。` };
-      const rentTotal = items.reduce((a, p) => a + p.rent, 0);
+      const rentTotal = items.reduce((a, p) => a + rentOf(p, req.startDate), 0);
       const extra = (req.addons || []).map(x => Object.assign({}, addonById(x.id), { qty: x.qty }));
       for (const a of extra) if (a.qty > addonAvail(addonById(a.id), req.startDate)) return { ok: false, error: `很抱歉，加購的「${a.name}」在這段期間不夠借了，請減少數量或移除。` };
       const addonTotal = extra.reduce((s, a) => s + a.price * a.qty, 0);
@@ -1042,8 +1088,8 @@
       const depositTotal = items.reduce((a, p) => a + p.deposit, 0) + addonDeposit;
       const order = {
         no: 'SG' + t.slice(5).replace(/-/g, '') + '-' + Array.from({ length: 4 }, () => '23456789ABCDEFGHJKMNPQRSTUVWXYZ'[Math.floor(Math.random() * 31)]).join(''),
-        status: '待付款', startDate: req.startDate, endDate: endOf(req.startDate),
-        items: items.map(p => ({ id: p.id, brand: p.brand, name: p.name, size: p.size, rent: p.rent, deposit: p.deposit })),
+        status: '待付款', startDate: req.startDate, endDate: endOf(req.startDate), period: (slotAt(req.startDate) || {}).name || '',
+        items: items.map(p => ({ id: p.id, brand: p.brand, name: p.name, size: p.size, rent: rentOf(p, req.startDate), deposit: p.deposit })),
         rentTotal, depositTotal, shipping: 0,
         coupon: req.demoCoupon ? req.demoCoupon.code : '', couponLabel: req.demoCoupon ? req.demoCoupon.label : '',
         discount: req.demoCoupon ? req.demoCoupon.discount : 0,

@@ -64,6 +64,7 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-copy-row { margin: 0; }
 .adm-copy-row .adm-copy-settle { margin-left: 0; }
 .adm-info em { white-space: nowrap; display: inline-block; font-style: normal; font-size: 12px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
+.adm-info em.slot { background: #f4ead6; color: #8a6527; }
 .adm-info em.warn { background: var(--rose-deep); color: #fff; }
 
 .adm-remit { margin-top: 10px; border-radius: 12px; padding: 10px 12px; font-size: 14px; background: #eef4ec; }
