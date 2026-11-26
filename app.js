@@ -75,6 +75,9 @@
     return hit ? (hit.type === 'block' ? 'blocked' : 'slot') : '';
   }
   const inWindow = s => !startProblem(s);
+  // 延遲寄回：每天加收租金的 10%（跟後台 LATE_FEE_RATE、管理頁的延遲費算法一樣；過年等固定檔期用檔期租金）
+  const LATE_FEE_RATE = 0.1;
+  const lateFeeText = (p, start) => `延遲寄回：每天加收租金 10%（${money(Math.round(rentOf(p, start) * LATE_FEE_RATE))}／天），從押金扣除`;
   const priceNote = p => {
     const parts = [p.mult !== 1 ? `租金 × ${p.mult}` : '', p.add ? `每件加 ${money(p.add)}` : ''].filter(Boolean);
     return parts.length ? parts.join('，') : '租金不變';
@@ -322,6 +325,7 @@
           <div class="rent" id="p-rent"><span>租金（每次）</span><b>${money(piece.rent)}</b></div>
           <div><span>押金</span><b>${money(piece.deposit)}</b></div>
         </div>
+        <p class="hint late-fee" id="p-late">${lateFeeText(piece, state.start)}</p>
         <h3 class="sec-title">選擇租借日期</h3>
         <p class="hint">${locked ? '同一張訂單的租借期間相同，已固定為租借清單的日期。要換日期，請先移除清單裡的衣服。' : `點選起日，迄日自動為起日＋${shop.rentalDays} 天。`}</p>
         <div id="p-cal"></div>
@@ -335,6 +339,7 @@
         // 選到固定檔期時，租金換成檔期租金
         const sl = state.start && slotAt(state.start);
         $('#p-rent', dlg.product).innerHTML = `<span>租金（${sl ? esc(sl.name) : '每次'}）</span><b>${money(rentOf(p, state.start))}</b>`;
+        $('#p-late', dlg.product).innerHTML = lateFeeText(p, state.start);
         if (state.cart.includes(p.id)) { btn.disabled = false; btn.textContent = '已在清單・前往結帳'; }
         else { btn.disabled = !free; btn.textContent = free ? '加入租借清單' : state.start ? '這段期間無法租借' : '請先選擇租借日期'; }
         if (!state.start) { box.innerHTML = ''; renderAddonPicker(); return; }
