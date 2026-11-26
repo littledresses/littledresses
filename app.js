@@ -775,6 +775,48 @@
     }
   }
 
+  // 寄出前可以修改姓名、電話、收件地址（留空的欄位不修改）
+  function contactFormHTML(o, phone) {
+    return `<details class="contact-edit">
+      <summary>修改收件資料</summary>
+      <form class="form contact-form" data-no="${esc(o.no)}" data-phone="${esc(phone)}">
+        <p class="hint">寄出前都可以修改，只要填寫要改的欄位，留空的不會變動。</p>
+        <label>姓名<input name="name" maxlength="50" autocomplete="name" placeholder="新的收件人姓名"></label>
+        <label>電話<input name="newPhone" type="tel" inputmode="tel" maxlength="30" autocomplete="tel" placeholder="新的電話"><small>改了電話之後，查詢紀錄要用新的電話。</small></label>
+        <label>收件地址<input name="address" maxlength="200" autocomplete="street-address" placeholder="新的收件地址，或順豐服務站名稱"></label>
+        <button type="submit" class="btn primary block">儲存修改</button>
+      </form>
+    </details>`;
+  }
+
+  async function submitContact(form) {
+    const fd = new FormData(form);
+    const v = k => String(fd.get(k) || '').trim();
+    const data = { name: v('name'), newPhone: v('newPhone'), address: v('address') };
+    if (!data.name && !data.newPhone && !data.address) { toast('請填寫要修改的欄位'); return; }
+    if (data.newPhone && data.newPhone.replace(/\D/g, '').length < 8) { toast('請輸入正確的電話號碼'); return; }
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = '儲存中…';
+    try {
+      const no = form.dataset.no;
+      const r = await apiPost(Object.assign({ action: 'updateContact', no, phone: form.dataset.phone }, data));
+      if (!r.ok) throw new Error(r.error);
+      // 電話改了的話，這台裝置記住的訂單也換成新電話
+      const saved = state.orders.find(s => sameNo(s.no, no));
+      if (saved) { saved.phone = r.phone; save(); }
+      if (data.newPhone && state.form.phone && state.form.phone.replace(/\D/g, '') === form.dataset.phone.replace(/\D/g, '')) { state.form.phone = r.phone; save(); }
+      const fresh = await apiPost({ action: 'lookup', phone: r.phone, no });
+      const card = form.closest('.record');
+      if (fresh.ok && card) card.outerHTML = recordHTML(fresh.orders[0], fresh.bank, r.phone);
+      toast(r.changed ? (data.newPhone ? '已修改，之後查詢請用新的電話' : '已修改收件資料') : '資料沒有變動');
+    } catch (e) {
+      toast(e.message || '儲存失敗，請稍後再試');
+      btn.disabled = false;
+      btn.textContent = '儲存修改';
+    }
+  }
+
   function recordHTML(o, bank, phone) {
     // 還沒回報匯款、或店家查無款項時，再顯示一次匯款資訊和回報表單
     const needPay = o.status === '待付款' && (!o.remit || o.payNote);
@@ -783,6 +825,7 @@
       <dl class="record-info">
         <div><dt>姓名</dt><dd>${esc(o.name)}</dd></div>
         <div><dt>電話</dt><dd>${esc(o.phone)}</dd></div>
+        ${o.address ? `<div><dt>收件地址</dt><dd>${esc(o.address)}</dd></div>` : ''}
         <div><dt>租借起日</dt><dd>${D.full(o.startDate)}</dd></div>
         <div><dt>截止日</dt><dd>${D.full(o.endDate)}</dd></div>
         <div><dt>租借商品</dt><dd>${o.items.map(p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '')).join('<br>')}</dd></div>
@@ -791,6 +834,7 @@
         ${o.discount ? `<div><dt>優惠碼</dt><dd>${esc(o.coupon)}（折抵 ${money(o.discount)}）</dd></div>` : ''}
         <div><dt>應付總額</dt><dd class="amount">${money(o.total)}</dd></div>
       </dl>
+      ${o.canEditContact ? contactFormHTML(o, phone) : ''}
       ${o.payNote && o.status === '待付款' ? `<div class="notice-box"><b>查帳結果</b><p>${esc(o.payNote)}</p><p class="hint">請確認後重新回報匯款資料，或私訊我們。</p></div>` : ''}
       ${needPay ? paymentHTML(o, bank, phone) : o.remit ? remitHTML(o.remit) : ''}
       ${progressHTML(o)}
@@ -886,6 +930,7 @@
     if (f.id === 'order-form') { e.preventDefault(); submitOrder(f); }
     else if (f.id === 'lookup-form') { e.preventDefault(); submitLookup(f); }
     else if (f.classList.contains('report-form')) { e.preventDefault(); submitReport(f); }
+    else if (f.classList.contains('contact-form')) { e.preventDefault(); submitContact(f); }
   });
 
   // ───────── 啟動 ─────────
@@ -923,12 +968,12 @@
   const demoOrders = (() => {
     const t = D.today();
     return [{
-      no: 'SG' + D.add(t, -20).slice(5).replace(/-/g, '') + '-K7QF', status: '已退押金', name: '陳小美', phone: '0912345678',
+      no: 'SG' + D.add(t, -20).slice(5).replace(/-/g, '') + '-K7QF', status: '已退押金', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號',
       startDate: D.add(t, -14), endDate: D.add(t, -9), items: [{ id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80' }],
       total: 10600, addon: '', remit: { name: '陳小美', bank: '國泰世華', date: D.add(t, -19), amount: 10600, last5: '24680', confirmed: true },
       tracking: 'SF1234567890', shippedAt: D.add(t, -16), returnedAt: D.add(t, -7), inspected: true, deduct: 0, refund: 10000, refundedAt: D.add(t, -6), refundDate: D.add(t, -6), refundLast5: '88123',
     }, {
-      no: 'SG' + D.add(t, -2).slice(5).replace(/-/g, '') + '-M3XA', status: '已付款', name: '陳小美', phone: '0912345678',
+      no: 'SG' + D.add(t, -2).slice(5).replace(/-/g, '') + '-M3XA', status: '已付款', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號',
       startDate: D.add(t, 40), endDate: D.add(t, 45), items: [{ id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90' }],
       total: 10750, addon: '珍珠髮箍 ×1（加購 NT$ 150，已含在應付總額內）\n白色小皮鞋 15cm 借用', remit: { name: '陳小美', bank: '中國信託', date: D.add(t, -1), amount: 10750, last5: '13579', confirmed: true },
     }];
@@ -1003,7 +1048,7 @@
         addons: extra.map(a => ({ id: a.id, name: a.name, price: a.price, deposit: a.deposit, qty: a.qty })), addonTotal, addonDeposit,
         total: rentTotal - (req.demoCoupon ? req.demoCoupon.discount : 0) + addonTotal + depositTotal,
         deadline: new Date(Date.now() + 24 * 36e5).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
-        name: req.customer.name, phone: req.customer.phone, addon: '', remit: null,
+        name: req.customer.name, phone: req.customer.phone, address: req.customer.address, addon: '', remit: null,
       };
       demoOrders.push(order);
       return { ok: true, order, bank: DEMO_BANK };
@@ -1016,13 +1061,24 @@
       o.payNote = '';
       return { ok: true };
     }
-    // 跟正式後台一樣：要電話＋訂單編號都對，姓名、電話遮掉一部分
+    if (req.action === 'updateContact') {
+      const o = demoOrders.find(x => sameNo(x.no, req.no) && digits(x.phone) === digits(req.phone));
+      if (!o) return { ok: false, error: '查不到這筆訂單' };
+      if (!['待付款', '已付款'].includes(o.status)) return { ok: false, error: '這筆訂單已經寄出或結束，收件資料不能修改了。' };
+      if (req.name) o.name = req.name;
+      if (req.newPhone) o.phone = req.newPhone;
+      if (req.address) o.address = req.address;
+      return { ok: true, phone: o.phone, changed: true };
+    }
+    // 跟正式後台一樣：要電話＋訂單編號都對，姓名、電話、地址遮掉一部分
     const o = demoOrders.find(x => sameNo(x.no, req.no) && digits(x.phone) === digits(req.phone));
     if (!o) return { ok: false, error: `查不到這筆訂單，請確認訂單編號與手機號碼。（示範模式可以試試 0912345678＋${demoOrders[1].no}）` };
     const mask = n => n.length <= 1 ? n : n.length === 2 ? n[0] + '*' : n[0] + '*'.repeat(n.length - 2) + n[n.length - 1];
     const ph = digits(o.phone);
     const view = Object.assign({}, o, {
       name: mask(o.name), phone: ph.slice(0, 4) + '-***-' + ph.slice(-3),
+      address: o.address && o.address.length > 6 ? o.address.slice(0, 6) + '＊＊＊' : (o.address || ''),
+      canEditContact: ['待付款', '已付款'].includes(o.status),
       remit: o.remit && Object.assign({}, o.remit, { name: mask(o.remit.name) }),
     });
     return { ok: true, orders: [view], bank: DEMO_BANK };

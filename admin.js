@@ -183,21 +183,31 @@
   }
 
   // ───────── 合併出貨 ─────────
-  // 同一位客人＝電話或地址一樣
-  const sameKey = o => [String(o.phone || '').replace(/\D/g, ''), String(o.address || '').replace(/\s/g, '')];
-  const sameCustomer = (a, b) => { const [p1, a1] = sameKey(a), [p2, a2] = sameKey(b); return (p1 && p1 === p2) || (a1 && a1 === a2); };
+  // 可以合併出貨＝姓名、電話、收件地址都一樣（後台 shipMany 也會再檢查一次）
+  const sameKey = o => [String(o.name || '').trim(), String(o.phone || '').replace(/\D/g, ''), String(o.address || '').replace(/\s/g, '')].join('|');
+  const sameCustomer = (a, b) => sameKey(a) === sameKey(b);
+  // 已經勾了一筆之後，姓名、電話、地址不一樣的訂單不能勾
+  function syncPickable() {
+    const first = state.orders.find(o => o.no === state.pick[0]);
+    document.querySelectorAll('[data-pick]').forEach(box => {
+      const o = state.orders.find(x => x.no === box.dataset.pick);
+      const off = !!first && !box.checked && !!o && !sameCustomer(o, first);
+      box.disabled = off;
+      box.closest('.adm-pick').classList.toggle('off', off);
+      box.closest('.adm-pick').title = off ? '姓名、電話、收件地址跟已勾選的訂單不同，不能合併' : '';
+    });
+  }
   function renderShipBar() {
     const bar = $('#shipbar');
     if (!bar) return;
     const picked = state.pick.map(no => state.orders.find(o => o.no === no)).filter(Boolean);
     document.body.classList.toggle('has-shipbar', picked.length > 0);
+    syncPickable();
     if (!picked.length) { bar.innerHTML = ''; return; }
-    const addrs = new Set(picked.map(o => String(o.address).replace(/\s/g, '')));
     bar.innerHTML = `<form class="adm-shipbar" data-submit="shipMany">
       <div class="adm-shipbar-head"><b>合併出貨 ${picked.length} 筆</b><button type="button" class="link-btn" data-act="unpick">取消選取</button></div>
       <p class="hint">${picked.map(o => `${esc(o.name)}・${esc(o.no)}`).join('<br>')}</p>
-      ${addrs.size > 1 ? '<p class="hint warn">⚠ 選到的訂單收件地址不一樣，請確認真的要裝同一箱寄出。</p>' : ''}
-      ${picked.length < 2 ? '<p class="hint">再勾一筆就能合併出貨。</p>' : `<div class="adm-shipbar-row"><input name="tracking" required autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="順豐單號"><button type="submit" class="btn primary">合併寄出</button></div>`}
+      ${picked.length < 2 ? '<p class="hint">再勾一筆姓名、電話、收件地址都一樣的訂單，就能合併出貨。</p>' : `<div class="adm-shipbar-row"><input name="tracking" required autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="順豐單號"><button type="submit" class="btn primary">合併寄出</button></div>`}
     </form>`;
   }
 
@@ -222,7 +232,7 @@
 
   function mergeHint(o) {
     const n = state.orders.filter(x => x !== o && x.status === '已付款' && sameCustomer(x, o)).length;
-    return n ? `<p class="adm-merge-hint">同一位客人還有 ${n} 筆待出貨，可以勾選訂單編號合併出貨</p>` : '';
+    return n ? `<p class="adm-merge-hint">同一位客人還有 ${n} 筆待出貨，（姓名、電話、地址都一樣），可以勾選訂單編號合併出貨</p>` : '';
   }
 
   function cardHTML(o, pickMode) {
@@ -563,6 +573,7 @@
       Object.assign({}, base, { no: no(0, 'H8KD'), status: '待付款', createdAt: t + ' 10:12', name: '林小華', phone: '0987654321', address: '台北市大安區復興南路一段 100 號', startDate: addDays(t, 6), endDate: addDays(t, 11), items: [item('SG002', '粉漾微光', '90')], addons: [{ id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, deposit: 150 }], addonTotal: 300, rentTotal: 600, depositTotal: 10300, total: 11200, remit: { name: '林小華', bank: '國泰世華', date: t, amount: 11200, last5: '55123' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(0, 'P2WQ'), status: '待付款', createdAt: t + ' 09:40', name: '張美玲', phone: '0922333444', address: '順豐 台中文心站', startDate: addDays(t, 9), endDate: addDays(t, 14), items: [item('SG004', '我的羅曼史', '80'), item('SG003', '粉漾微光', '100')], rentTotal: 1200, coupon: 'WELCOME100', discount: 100, depositTotal: 20000, total: 21100, remit: { name: '張美玲', bank: '中國信託', date: t, amount: 20000, last5: '77001' }, note: '想加購珍珠髮箍', refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-1, 'Z7MN'), status: '待付款', createdAt: addDays(t, -1) + ' 21:05', name: '王大明', phone: '0911222333', address: '新北市板橋區文化路一段 1 號', startDate: addDays(t, 12), endDate: addDays(t, 17), items: [item('SG006', '我的羅曼史', '110')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: null, refundAccount: acct, log: '' }),
+      Object.assign({}, base, { no: no(-2, 'Q8RP'), status: '已付款', createdAt: addDays(t, -2) + ' 18:30', name: '黃欣怡', phone: '0933222111', address: '台中市西屯區台灣大道三段 99 號', startDate: addDays(t, 4), endDate: addDays(t, 9), items: [item('SG003', '粉漾微光', '100')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: { name: '黃欣怡', bank: '台新', date: addDays(t, -1), amount: 10600, last5: '44556' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-2, 'T6YU'), status: '已付款', createdAt: addDays(t, -2) + ' 20:05', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號', startDate: addDays(t, 2), endDate: addDays(t, 7), items: [item('SG002', '粉漾微光', '90')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: { name: '陳小美', bank: '中國信託', date: addDays(t, -1), amount: 10600, last5: '13580' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-3, 'M3XA'), status: '已付款', createdAt: addDays(t, -3) + ' 14:20', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號', startDate: addDays(t, 2), endDate: addDays(t, 7), items: [item('SG005', '我的羅曼史', '90')], rentTotal: 600, depositTotal: 10000, total: 10750, addon: '珍珠髮箍 ×1（加購 NT$ 150）', remit: { name: '陳小美', bank: '中國信託', date: addDays(t, -2), amount: 10750, last5: '13579' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-8, 'R4TE'), status: '已出貨', createdAt: addDays(t, -8) + ' 11:00', name: '李安安', phone: '0933444555', address: '桃園市中壢區中正路 3 號', startDate: addDays(t, -3), endDate: addDays(t, 2), items: [item('SG001', '粉漾微光', '80')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF1029384756', remit: { name: '李安安', bank: '台新', date: addDays(t, -7), amount: 10600, last5: '24680' }, refundAccount: acct, log: '' }),

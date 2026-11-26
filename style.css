@@ -328,6 +328,11 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .refund-set .hint { margin: 0; }
 
 /* 查詢紀錄：查帳結果、出貨與退押金進度 */
+.contact-edit { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.contact-edit summary { cursor: pointer; font-size: 14px; color: var(--rose-deep); }
+.contact-edit[open] summary { margin-bottom: 10px; }
+.contact-edit .form { gap: 10px; }
+.contact-edit .hint { margin: 0; }
 .notice-box { margin-top: 12px; border: 1px solid #e8b9b0; background: #fdf1ee; border-radius: 12px; padding: 10px 14px; font-size: 14px; }
 .notice-box b { color: var(--danger); }
 .notice-box p { margin: 4px 0 0; }
