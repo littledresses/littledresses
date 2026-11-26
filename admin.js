@@ -10,6 +10,42 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = n => 'NT$ ' + Number(n || 0).toLocaleString('zh-TW');
   const today = () => new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10);
+  const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+  // 檢查完成時預計退多少押金：押金 − 延遲費 − 維修費 − 延期加收
+  // 延遲費＝總租金（租金原價＋加購）× 10% × 延遲天數（後台 Code.gs 的 LATE_FEE_RATE 要一起改）
+  const LATE_FEE_RATE = 0.1;
+  const rentBase = o => (o.rentTotal || 0) + (o.addonTotal || 0);
+  const lateFeeOf = (o, days) => Math.round(rentBase(o) * LATE_FEE_RATE * days);
+  const refundLeft = (o, late, repair) => Math.max(0, o.depositTotal - late - repair - (o.extendFee || 0));
+  // 傳給客戶的押金結算文字（按「複製給客戶」貼到 LINE／訊息）
+  // d = { days, late, repair, reason, deduct（舊資料只有合計時）, amount }
+  const settleText = (o, d) => {
+    const ext = o.extendFee || 0;
+    const lines = ['您好，衣服已經檢查完成，押金結算如下：', `押金 ${money(o.depositTotal)}`];
+    if (d.late) lines.push(`－ 延遲費 ${money(d.late)}（延遲 ${d.days} 天：總租金 ${money(rentBase(o))} × 10% × ${d.days} 天）`);
+    if (d.repair) lines.push(`－ 維修／清潔費 ${money(d.repair)}${d.reason ? `（${d.reason}）` : ''}`);
+    if (d.deduct) lines.push(`－ 扣款 ${money(d.deduct)}${d.reason ? `（${d.reason}）` : ''}`);
+    if (ext) lines.push(`－ 延期加收 ${money(ext)}`);
+    if (lines.length === 2) lines[1] = `衣服完好，押金 ${money(o.depositTotal)} 全額退還。`;
+    else lines.push(`＝ 退還 ${money(d.amount)}`);
+    lines.push('款項會轉到您下單時留的帳戶，謝謝您 ✦');
+    return lines.join('\n');
+  };
+  // 待退款卡片：從訂單資料拆出延遲費、維修費（維修原因從扣款原因那一行取出）
+  const refundDetail = (o, amount) => {
+    if (!o.lateFee && !o.repairFee) return { deduct: o.deduct || 0, reason: o.deductReason, amount };
+    const m = String(o.deductReason || '').match(/維修／清潔 NT\$ [\d,]+：(.+)/);
+    return { days: o.lateDays, late: o.lateFee, repair: o.repairFee, reason: m ? m[1] : '', amount };
+  };
+  const copyBtn = text => `<button type="button" class="copy adm-copy-settle" data-copy="${esc(text)}" aria-label="複製押金結算，傳給客戶" title="複製押金結算，傳給客戶"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg></button>`;
+  const calcText = (o, late, repair, days, reason) => {
+    const ext = o.extendFee || 0;
+    if (late + repair + ext > o.depositTotal) return `<b class="warn">扣款加起來超過押金 ${money(o.depositTotal)} 了</b>`;
+    const parts = [late ? ` − 延遲費 ${money(late)}` : '', repair ? ` − 維修費 ${money(repair)}` : '', ext ? ` − 延期加收 ${money(ext)}` : ''].join('');
+    const amount = refundLeft(o, late, repair);
+    return (late || repair ? '' : '都沒勾＝衣服完好。') + `押金 ${money(o.depositTotal)}${parts} ＝ 預計退 <b>${money(amount)}</b>`
+      + copyBtn(settleText(o, { days, late, repair, reason, amount }));
+  };
   const addDays = (s, n) => { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
   const dayDiff = (a, b) => { const p = s => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); }; return Math.round((p(b) - p(a)) / 864e5); };
   const pretty = s => {
@@ -29,6 +65,7 @@
     orders: [],
     tab: '',
     q: '',
+    pick: [], // 待出貨分頁勾選要合併出貨的訂單編號
     open: {}, // 展開中的操作表單 { 訂單編號: 'reject' | 'cancel' | ... }
     busy: false,
   };
@@ -121,6 +158,9 @@
     const list = q
       ? state.orders.filter(o => [o.no, o.name, o.phone, o.tracking].join(' ').toLowerCase().replace(/-/g, '').includes(q.replace(/-/g, '')))
       : state.orders.filter(tab.match);
+    // 合併出貨只在「待出貨」分頁；勾選中的訂單如果已經不是已付款就拿掉
+    const pickMode = !q && state.tab === 'ship';
+    state.pick = pickMode ? state.pick.filter(no => state.orders.some(o => o.no === no && o.status === '已付款')) : [];
 
     $('#app').innerHTML = `
       <header class="adm-head">
@@ -136,29 +176,73 @@
         ${TABS.map(t => `<button type="button" data-tab="${t.key}" aria-pressed="${t.key === state.tab}">${t.label}${counts[t.key] && t.key !== 'done' ? `<span>${counts[t.key]}</span>` : ''}</button>`).join('')}
       </nav>`}
       <main class="adm-list">
-        ${list.length ? list.map(cardHTML).join('') : `<p class="empty-state">${q ? '找不到符合的訂單' : '這裡目前沒有訂單 ✦'}</p>`}
-      </main>`;
+        ${list.length ? list.map(o => cardHTML(o, pickMode)).join('') : `<p class="empty-state">${q ? '找不到符合的訂單' : '這裡目前沒有訂單 ✦'}</p>`}
+      </main>
+      <div id="shipbar"></div>`;
+    renderShipBar();
+  }
+
+  // ───────── 合併出貨 ─────────
+  // 同一位客人＝電話或地址一樣
+  const sameKey = o => [String(o.phone || '').replace(/\D/g, ''), String(o.address || '').replace(/\s/g, '')];
+  const sameCustomer = (a, b) => { const [p1, a1] = sameKey(a), [p2, a2] = sameKey(b); return (p1 && p1 === p2) || (a1 && a1 === a2); };
+  function renderShipBar() {
+    const bar = $('#shipbar');
+    if (!bar) return;
+    const picked = state.pick.map(no => state.orders.find(o => o.no === no)).filter(Boolean);
+    document.body.classList.toggle('has-shipbar', picked.length > 0);
+    if (!picked.length) { bar.innerHTML = ''; return; }
+    const addrs = new Set(picked.map(o => String(o.address).replace(/\s/g, '')));
+    bar.innerHTML = `<form class="adm-shipbar" data-submit="shipMany">
+      <div class="adm-shipbar-head"><b>合併出貨 ${picked.length} 筆</b><button type="button" class="link-btn" data-act="unpick">取消選取</button></div>
+      <p class="hint">${picked.map(o => `${esc(o.name)}・${esc(o.no)}`).join('<br>')}</p>
+      ${addrs.size > 1 ? '<p class="hint warn">⚠ 選到的訂單收件地址不一樣，請確認真的要裝同一箱寄出。</p>' : ''}
+      ${picked.length < 2 ? '<p class="hint">再勾一筆就能合併出貨。</p>' : `<div class="adm-shipbar-row"><input name="tracking" required autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="順豐單號"><button type="submit" class="btn primary">合併寄出</button></div>`}
+    </form>`;
+  }
+
+  async function shipMany(tracking) {
+    if (state.busy) return;
+    const picked = state.pick.map(no => state.orders.find(o => o.no === no)).filter(Boolean);
+    if (!(await ask(`這 ${picked.length} 筆訂單（${Array.from(new Set(picked.map(o => o.name))).join('、')}）裝同一箱，用順豐單號 ${tracking} 寄出？`, '合併寄出'))) return;
+    state.busy = true;
+    try {
+      await adminCall('shipMany', { nos: state.pick, tracking });
+      state.pick = [];
+      render();
+      toast(`已合併寄出 ${picked.length} 筆`);
+    } catch (e) {
+      if (state.auth) toast(e.message);
+    } finally {
+      state.busy = false;
+    }
   }
 
   const refundProofText = o => o.refundDate ? `<small>（${pretty(o.refundDate)} 轉出，後五碼 ${esc(o.refundLast5)}）</small>` : '';
 
-  function cardHTML(o) {
+  function mergeHint(o) {
+    const n = state.orders.filter(x => x !== o && x.status === '已付款' && sameCustomer(x, o)).length;
+    return n ? `<p class="adm-merge-hint">同一位客人還有 ${n} 筆待出貨，可以勾選訂單編號合併出貨</p>` : '';
+  }
+
+  function cardHTML(o, pickMode) {
     const left = o.startDate ? dayDiff(today(), o.startDate) : null;
     const urgent = o.status === '已付款' && left !== null && left <= 3;
     const remitOk = o.remit && o.remit.amount === o.total;
     return `<article class="adm-card${urgent ? ' urgent' : ''}" data-no="${esc(o.no)}">
       <div class="adm-card-head">
-        <span class="mono">${esc(o.no)}</span>
+        ${pickMode ? `<label class="adm-pick"><input type="checkbox" data-pick="${esc(o.no)}" ${state.pick.includes(o.no) ? 'checked' : ''}><span class="mono">${esc(o.no)}</span></label>` : `<span class="mono">${esc(o.no)}</span>`}
         <span class="status-badge${['已付款', '已出貨', '檢查中', '已歸還', '已退押金'].includes(o.status) ? ' ok' : ''}">${esc(o.status)}</span>
       </div>
       <div class="adm-who">
         <b>${esc(o.name)}</b>
         <a href="tel:${esc(o.phone.replace(/[^\d+]/g, ''))}" class="copy">撥打 ${esc(o.phone)}</a>
       </div>
+      ${pickMode ? mergeHint(o) : ''}
       <dl class="adm-info">
         <div><dt>租期</dt><dd>${pretty(o.startDate)} ～ ${pretty(o.endDate)}${o.status === '已付款' && left !== null ? `<em class="${urgent ? 'warn' : ''}">${left > 0 ? `還有 ${left} 天` : left === 0 ? '今天起租' : `已過 ${-left} 天`}</em>` : ''}</dd></div>
         <div><dt>衣服</dt><dd>${o.items.map(p => esc(itemName(p))).join('<br>')}</dd></div>
-        ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd class="adm-addons">${o.addons.map(a => `${esc(a.name)} <b>× ${a.qty}</b>`).join('<br>')}<small>跟衣服一起寄出，歸還時記得點收</small></dd></div>` : ''}
+        ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd class="adm-addons">${o.addons.map(a => `${esc(a.name)} <b>× ${a.qty}</b>${a.deposit ? `（押金 ${money(a.deposit * a.qty)}）` : ''}`).join('<br>')}<small>跟衣服一起寄出，歸還時記得點收</small></dd></div>` : ''}
         <div><dt>金額</dt><dd>${money(o.total)}<small>（租金 ${money(o.rentTotal)}${o.discount ? `－優惠 ${money(o.discount)}` : ''}${o.addonTotal ? `＋加購 ${money(o.addonTotal)}` : ''}＋押金 ${money(o.depositTotal)}${o.shipping ? `＋運費 ${money(o.shipping)}` : ''}）</small></dd></div>
         ${o.coupon ? `<div><dt>優惠碼</dt><dd><span class="mono">${esc(o.coupon)}</span>　折抵 ${money(o.discount)}</dd></div>` : ''}
         <div><dt>地址</dt><dd>${esc(o.address)} <button type="button" class="copy" data-copy="${esc(o.address)}">複製</button></dd></div>
@@ -166,7 +250,7 @@
         ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
         ${o.tracking ? `<div><dt>順豐單號</dt><dd><span class="mono">${esc(o.tracking)}</span> <button type="button" class="copy" data-copy="${esc(o.tracking)}">複製</button></dd></div>` : ''}
         ${o.status === '檢查中' && o.returnedAt ? `<div><dt>收到歸還</dt><dd>${pretty(o.returnedAt)}</dd></div>` : ''}
-        ${o.status === '已歸還' || o.status === '已退押金' || (o.status === '待退款' && o.cancelRefund == null) ? `<div><dt>驗收</dt><dd>${o.deduct ? `扣款 ${money(o.deduct)}：${esc(o.deductReason)}` : '衣服完好'}</dd></div>` : ''}
+        ${o.status === '已歸還' || o.status === '已退押金' || (o.status === '待退款' && o.cancelRefund == null) ? `<div><dt>驗收</dt><dd>${o.deduct ? `扣款 ${money(o.deduct)}<small class="pre">${esc(o.deductReason)}</small>` : '衣服完好'}</dd></div>` : ''}
         ${o.extendFee ? `<div><dt>延期加收</dt><dd>${money(o.extendFee)}<small>（從押金扣除）</small></dd></div>` : ''}
         ${o.refund != null ? `<div><dt>已退押金</dt><dd>${money(o.refund)}${refundProofText(o)}</dd></div>` : ''}
         ${o.cancelRefund != null ? `<div><dt>${o.status === '待退款' ? '應退款' : '已退款'}</dt><dd>${money(o.cancelRefund)}${o.status === '待退款' ? '' : refundProofText(o)}</dd></div>` : ''}
@@ -207,16 +291,24 @@
           <label>加收金額（選填，會從押金扣除）<input name="fee" inputmode="numeric" placeholder="0"></label>
           <p class="hint">系統會檢查這件衣服延後之後，會不會影響下一位客戶的檔期。</p>`, '延後歸還日');
         return `<div class="adm-actions">${btn('received', '收到歸還', 'primary')}${btn('extend', '延後歸還日')}${btn('retrack', '修改單號', 'ghost')}${btn('cancel', '取消並退款', 'ghost')}</div>`;
-      case '檢查中':
+      case '檢查中': {
+        const late = o.returnedAt ? daysBetween(o.endDate, o.returnedAt) : 0;
         return form('inspect', `
+          <p class="hint">租借迄日 ${pretty(o.endDate)}${o.returnedAt ? `，${pretty(o.returnedAt)} 收到${late > 0 ? `<b class="warn">（晚 ${late} 天，含寄送時間）</b>` : ''}` : ''}</p>
           <fieldset class="adm-choice">
-            <label class="check"><input type="radio" name="result" value="ok" checked> 衣服完好，全額退押金</label>
-            <label class="check"><input type="radio" name="result" value="deduct"> 有損壞或污漬，要扣款</label>
+            <label class="check"><input type="checkbox" name="late" data-deduct-box="late"> 延遲歸還，要扣延遲費</label>
+            <div class="adm-deduct" data-box="late" hidden>
+              <label>延遲天數<input name="lateDays" type="number" inputmode="numeric" min="1" max="60" step="1" value="${late > 0 ? late : ''}" placeholder="例如 2"></label>
+              <p class="hint adm-late">延遲費＝總租金 ${money(rentBase(o))} × 10% × 天數${late > 0 ? `＝<b>${money(lateFeeOf(o, late))}</b>` : ''}</p>
+            </div>
+            <label class="check"><input type="checkbox" name="repair" data-deduct-box="repair"> 有損壞或污漬，要扣維修／清潔費</label>
+            <div class="adm-deduct" data-box="repair" hidden>
+              <label>維修費<input name="repairFee" inputmode="numeric" placeholder="例如 500"></label>
+              <label>原因（客戶查詢時看得到）<textarea name="reason" rows="2" maxlength="200" placeholder="例如：裙擺有一處勾紗，需要修補"></textarea></label>
+            </div>
           </fieldset>
-          <div class="adm-deduct" hidden>
-            <label>扣款金額<input name="deduct" inputmode="numeric" placeholder="例如 500"></label>
-            <label>扣款原因（客戶查詢時看得到）<textarea name="reason" rows="2" maxlength="200" placeholder="例如：裙擺有一處勾紗，需要修補"></textarea></label>
-          </div>`, '檢查完成').replace('<button type="button" class="btn" data-op="close">取消</button>', '');
+          <p class="hint adm-calc" data-deposit="${o.depositTotal}" data-extend="${o.extendFee || 0}" data-rent="${rentBase(o)}">${calcText(o, 0, 0)}</p>`, '檢查完成').replace('<button type="button" class="btn" data-op="close">取消</button>', '');
+      }
       case '待退款':
         if (o.cancelRefund != null) return refundAccountHTML(o) + form('refundCancel', `<label>退款金額<input name="amount" inputmode="numeric" required value="${o.cancelRefund}"></label>
           ${refundProofFields()}
@@ -228,7 +320,8 @@
         const amount = Math.max(0, o.depositTotal - (o.deduct || 0) - (o.extendFee || 0));
         return refundAccountHTML(o) + form('refund', `<label>退款金額<input name="amount" inputmode="numeric" required value="${amount}"></label>
           ${refundProofFields()}
-          <p class="hint">押金 ${money(o.depositTotal)}${o.deduct ? ` − 扣款 ${money(o.deduct)}` : ''}${o.extendFee ? ` − 延期加收 ${money(o.extendFee)}` : ''} ＝ ${money(amount)}。轉帳完成後再按「已退押金」。</p>`, '已退押金')
+          <p class="hint">押金 ${money(o.depositTotal)}${o.lateFee || o.repairFee ? `${o.lateFee ? ` − 延遲費${o.lateDays ? `（${o.lateDays} 天）` : ''} ${money(o.lateFee)}` : ''}${o.repairFee ? ` − 維修費 ${money(o.repairFee)}` : ''}` : o.deduct ? ` − 扣款 ${money(o.deduct)}` : ''}${o.extendFee ? ` − 延期加收 ${money(o.extendFee)}` : ''} ＝ ${money(amount)}。轉帳完成後再按「已退押金」。</p>
+          <p class="adm-copy-row">${copyBtn(settleText(o, refundDetail(o, amount)))}</p>`, '已退押金')
           .replace('<button type="button" class="btn" data-op="close">取消</button>', '');
       }
       default:
@@ -299,11 +392,21 @@
     const v = k => String(fd.get(k) || '').trim();
     switch (f.dataset.submit) {
       case 'rejectPay': runOp(no, 'rejectPay', { message: v('message') }, '已回覆查帳結果'); break;
+      case 'shipMany': {
+        const tracking = v('tracking').replace(/\s/g, '').toUpperCase();
+        if (!/^[0-9A-Z]{8,20}$/.test(tracking)) { toast('順豐單號格式不對，請再確認一次'); return; }
+        shipMany(tracking);
+        break;
+      }
       case 'ship': runOp(no, 'ship', { tracking: v('tracking').replace(/\s/g, '') }, '已更新順豐單號'); break;
       case 'inspect': {
-        const deduct = v('result') === 'deduct' ? Number(v('deduct').replace(/[^\d]/g, '')) : 0;
-        if (v('result') === 'deduct' && !(deduct > 0)) { toast('請填扣款金額'); return; }
-        runOp(no, 'inspect', { deduct, reason: v('reason') }, '檢查完成，接著退押金');
+        const fee = k => Number(v(k).replace(/[^\d]/g, ''));
+        const lateDays = fd.get('late') ? fee('lateDays') : 0;
+        const repairFee = fd.get('repair') ? fee('repairFee') : 0;
+        if (fd.get('late') && !(lateDays > 0)) { toast('請填延遲天數'); return; }
+        if (fd.get('repair') && !(repairFee > 0)) { toast('請填維修費'); return; }
+        if (fd.get('repair') && !v('reason')) { toast('請寫維修費的原因，客戶查詢時會看到'); return; }
+        runOp(no, 'inspect', { lateDays, repairFee, reason: fd.get('repair') ? v('reason') : '' }, '檢查完成，接著退押金');
         break;
       }
       case 'refund': {
@@ -341,7 +444,8 @@
     if (t.dataset.copy != null) { copy(t.dataset.copy); return; }
     if (t.dataset.act === 'refresh') { refresh(); toast('已重新整理'); return; }
     if (t.dataset.act === 'logout') { if (await ask('確定要登出嗎？', '登出')) logout(); return; }
-    if (t.dataset.tab) { state.tab = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
+    if (t.dataset.act === 'unpick') { state.pick = []; render(); return; }
+    if (t.dataset.tab) { state.tab = t.dataset.tab; state.pick = []; render(); window.scrollTo(0, 0); return; }
     const no = t.closest('.adm-card') && t.closest('.adm-card').dataset.no;
     const op = t.dataset.op;
     if (op === 'confirmPay') {
@@ -357,12 +461,34 @@
     render();
   });
 
+  // 記下哪個表單動過，切回 App 時不要自動重新整理
+  ['input', 'change'].forEach(t => document.addEventListener(t, e => { const f = e.target.closest && e.target.closest('form[data-submit]'); if (f) f.dataset.dirty = '1'; }));
   document.addEventListener('change', e => {
-    if (e.target.name === 'result') {
-      const box = e.target.closest('form').querySelector('.adm-deduct');
-      box.hidden = e.target.value !== 'deduct';
+    if (e.target.dataset.pick) {
+      const no = e.target.dataset.pick;
+      state.pick = e.target.checked ? state.pick.concat(no) : state.pick.filter(x => x !== no);
+      renderShipBar();
+      return;
+    }
+    if (e.target.dataset.deductBox) {
+      const f = e.target.closest('form');
+      f.querySelector(`[data-box="${e.target.dataset.deductBox}"]`).hidden = !e.target.checked;
+      updateCalc(f);
     }
   });
+  // 檢查表單：邊填邊算預計退多少押金
+  function updateCalc(f) {
+    const calc = f.querySelector('.adm-calc');
+    if (!calc) return;
+    const fee = (box, k) => f[box].checked ? Number(String(f[k].value).replace(/[^\d]/g, '')) || 0 : 0;
+    const o = { depositTotal: Number(calc.dataset.deposit), extendFee: Number(calc.dataset.extend), rentTotal: Number(calc.dataset.rent) };
+    const days = fee('late', 'lateDays');
+    const lateFee = lateFeeOf(o, days);
+    const note = f.querySelector('.adm-late');
+    if (note) note.innerHTML = `延遲費＝總租金 ${money(o.rentTotal)} × 10% × 天數${days ? `＝<b>${money(lateFee)}</b>` : ''}`;
+    calc.innerHTML = calcText(o, lateFee, fee('repair', 'repairFee'), days, f.repair.checked ? f.reason.value.trim() : '');
+  }
+  document.addEventListener('input', e => { if (['lateDays', 'repairFee', 'reason'].includes(e.target.name) && e.target.closest('form[data-submit="inspect"]')) updateCalc(e.target.closest('form')); });
 
   let searchTimer;
   document.addEventListener('input', e => {
@@ -379,7 +505,8 @@
 
   // 從背景切回來時自動更新（例如剛從銀行 App 回來）
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && state.auth && !state.busy && !Object.keys(state.open).length) refresh();
+    // 有表單填到一半（例如切去 LINE 傳結算給客戶再回來）就不重新整理，免得填的內容被清掉
+    if (!document.hidden && state.auth && !state.busy && !Object.keys(state.open).length && !document.querySelector('form[data-dirty]')) refresh();
   });
 
   // 自己畫的確認視窗：有些瀏覽器（App 內建瀏覽器、預覽視窗）會直接擋掉系統的 confirm()，按了會沒反應
@@ -406,10 +533,10 @@
   function showCopy(text) {
     const box = document.createElement('div');
     box.className = 'adm-ask';
-    box.innerHTML = `<div class="adm-ask-card"><p>請長按下面的文字複製：</p><input readonly value="${esc(text)}"><div class="foot-row"><button type="button" class="btn primary" data-ask="no">好</button></div></div>`;
+    box.innerHTML = `<div class="adm-ask-card"><p>請長按下面的文字複製：</p>${/\n/.test(text) ? `<textarea readonly rows="7">${esc(text)}</textarea>` : `<input readonly value="${esc(text)}">`}<div class="foot-row"><button type="button" class="btn primary" data-ask="no">好</button></div></div>`;
     box.addEventListener('click', e => { if (e.target.closest('[data-ask]') || e.target === box) box.remove(); });
     document.body.appendChild(box);
-    box.querySelector('input').select();
+    box.querySelector('input, textarea').select();
   }
 
   function toast(msg) {
@@ -433,17 +560,27 @@
     const item = (id, name, size) => ({ id, brand: '多霏', name, size });
     const acct = { code: '013', bank: '國泰世華', account: '0123-4567-8901', holder: '林小華' };
     return [
-      Object.assign({}, base, { no: no(0, 'H8KD'), status: '待付款', createdAt: t + ' 10:12', name: '林小華', phone: '0987654321', address: '台北市大安區復興南路一段 100 號', startDate: addDays(t, 6), endDate: addDays(t, 11), items: [item('SG002', '粉漾微光', '90')], addons: [{ id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150 }], addonTotal: 300, rentTotal: 600, depositTotal: 10000, total: 10900, remit: { name: '林小華', bank: '國泰世華', date: t, amount: 10900, last5: '55123' }, refundAccount: acct, log: '' }),
+      Object.assign({}, base, { no: no(0, 'H8KD'), status: '待付款', createdAt: t + ' 10:12', name: '林小華', phone: '0987654321', address: '台北市大安區復興南路一段 100 號', startDate: addDays(t, 6), endDate: addDays(t, 11), items: [item('SG002', '粉漾微光', '90')], addons: [{ id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, deposit: 150 }], addonTotal: 300, rentTotal: 600, depositTotal: 10300, total: 11200, remit: { name: '林小華', bank: '國泰世華', date: t, amount: 11200, last5: '55123' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(0, 'P2WQ'), status: '待付款', createdAt: t + ' 09:40', name: '張美玲', phone: '0922333444', address: '順豐 台中文心站', startDate: addDays(t, 9), endDate: addDays(t, 14), items: [item('SG004', '我的羅曼史', '80'), item('SG003', '粉漾微光', '100')], rentTotal: 1200, coupon: 'WELCOME100', discount: 100, depositTotal: 20000, total: 21100, remit: { name: '張美玲', bank: '中國信託', date: t, amount: 20000, last5: '77001' }, note: '想加購珍珠髮箍', refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-1, 'Z7MN'), status: '待付款', createdAt: addDays(t, -1) + ' 21:05', name: '王大明', phone: '0911222333', address: '新北市板橋區文化路一段 1 號', startDate: addDays(t, 12), endDate: addDays(t, 17), items: [item('SG006', '我的羅曼史', '110')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: null, refundAccount: acct, log: '' }),
+      Object.assign({}, base, { no: no(-2, 'T6YU'), status: '已付款', createdAt: addDays(t, -2) + ' 20:05', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號', startDate: addDays(t, 2), endDate: addDays(t, 7), items: [item('SG002', '粉漾微光', '90')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: { name: '陳小美', bank: '中國信託', date: addDays(t, -1), amount: 10600, last5: '13580' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-3, 'M3XA'), status: '已付款', createdAt: addDays(t, -3) + ' 14:20', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號', startDate: addDays(t, 2), endDate: addDays(t, 7), items: [item('SG005', '我的羅曼史', '90')], rentTotal: 600, depositTotal: 10000, total: 10750, addon: '珍珠髮箍 ×1（加購 NT$ 150）', remit: { name: '陳小美', bank: '中國信託', date: addDays(t, -2), amount: 10750, last5: '13579' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-8, 'R4TE'), status: '已出貨', createdAt: addDays(t, -8) + ' 11:00', name: '李安安', phone: '0933444555', address: '桃園市中壢區中正路 3 號', startDate: addDays(t, -3), endDate: addDays(t, 2), items: [item('SG001', '粉漾微光', '80')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF1029384756', remit: { name: '李安安', bank: '台新', date: addDays(t, -7), amount: 10600, last5: '24680' }, refundAccount: acct, log: '' }),
-      Object.assign({}, base, { no: no(-15, 'B9CV'), status: '待退款', createdAt: addDays(t, -15) + ' 16:30', name: '周曉雯', phone: '0955666777', address: '台南市東區大學路 1 號', startDate: addDays(t, -10), endDate: addDays(t, -5), items: [item('SG004', '我的羅曼史', '80')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF5647382910', deduct: 500, deductReason: '裙擺一處勾紗，需要修補', remit: { name: '周曉雯', bank: '玉山', date: addDays(t, -14), amount: 10600, last5: '11223' }, refundAccount: { code: '808', bank: '玉山銀行', account: '0987-6543-2100', holder: '周曉雯' }, log: '' }),
+      Object.assign({}, base, { no: no(-15, 'B9CV'), status: '待退款', createdAt: addDays(t, -15) + ' 16:30', name: '周曉雯', phone: '0955666777', address: '台南市東區大學路 1 號', startDate: addDays(t, -10), endDate: addDays(t, -5), items: [item('SG004', '我的羅曼史', '80')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF5647382910', deduct: 620, lateDays: 2, lateFee: 120, repairFee: 500, deductReason: '延遲歸還 2 天 NT$ 120（總租金 NT$ 600 × 10% × 2 天）\n維修／清潔 NT$ 500：裙擺一處勾紗，需要修補', remit: { name: '周曉雯', bank: '玉山', date: addDays(t, -14), amount: 10600, last5: '11223' }, refundAccount: { code: '808', bank: '玉山銀行', account: '0987-6543-2100', holder: '周曉雯' }, log: '' }),
       Object.assign({}, base, { no: no(-12, 'K5WS'), status: '檢查中', createdAt: addDays(t, -12) + ' 19:10', name: '吳佳佳', phone: '0966777888', address: '新竹市東區光復路 2 號', startDate: addDays(t, -8), endDate: addDays(t, -3), returnedAt: addDays(t, -1), items: [item('SG006', '我的羅曼史', '110')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF2233445566', remit: { name: '吳佳佳', bank: '富邦', date: addDays(t, -11), amount: 10600, last5: '99881' }, refundAccount: { code: '012', bank: '台北富邦', account: '1111-2222-3333', holder: '吳佳佳' }, log: '' }),
     ];
   })();
 
   function demoApi(req) {
+    if (req.op === 'shipMany') {
+      const list = req.nos.map(n => demo.find(x => x.no === n));
+      if (list.length < 2 || list.some(x => !x || x.status !== '已付款')) return { ok: false, error: '合併出貨請選兩筆以上「已付款」的訂單。' };
+      list.forEach(x => {
+        x.status = '已出貨'; x.tracking = req.tracking;
+        x.log = (x.log ? x.log + '\n' : '') + `示範管理員：已寄出（跟 ${list.filter(y => y !== x).map(y => y.no).join('、')} 合併出貨），順豐單號 ${req.tracking}`;
+      });
+      return { ok: true, name: '示範管理員', orders: demo };
+    }
     if (req.action === 'adminLogin') return req.password === 'demo1234' ? { ok: true, token: 'demo', name: '示範管理員' } : { ok: false, error: '密碼不正確。（示範模式的密碼是 demo1234）' };
     const o = demo.find(x => x.no === req.no);
     const name = '示範管理員';
@@ -458,12 +595,15 @@
         o.status = '已出貨'; o.tracking = req.tracking.toUpperCase();
         break;
       case 'received': o.status = '檢查中'; o.returnedAt = today(); log('收到歸還，檢查中'); break;
-      case 'inspect':
-        if (req.deduct > o.depositTotal) return { ok: false, error: '扣款金額不能超過押金。' };
-        if (req.deduct && !req.reason) return { ok: false, error: '請寫扣款原因，客戶查詢時會看到。' };
-        o.status = '待退款'; o.deduct = req.deduct; o.deductReason = req.reason;
-        log(req.deduct ? `檢查完成，扣款 ${req.deduct}：${req.reason}` : '檢查完成，衣服完好');
+      case 'inspect': {
+        const lateFee = lateFeeOf(o, req.lateDays);
+        const deduct = lateFee + req.repairFee;
+        if (deduct + (o.extendFee || 0) > o.depositTotal) return { ok: false, error: '扣款加上延期加收不能超過押金。' };
+        const parts = [lateFee ? `延遲歸還 ${req.lateDays} 天 ${money(lateFee)}（總租金 ${money(rentBase(o))} × 10% × ${req.lateDays} 天）` : '', req.repairFee ? `維修／清潔 ${money(req.repairFee)}：${req.reason}` : ''].filter(Boolean);
+        o.status = '待退款'; o.deduct = deduct; o.lateDays = req.lateDays; o.lateFee = lateFee; o.repairFee = req.repairFee; o.deductReason = parts.join('\n');
+        log(deduct ? `檢查完成，扣款 ${deduct}（${parts.join('；')}）` : '檢查完成，衣服完好');
         break;
+      }
       case 'refund': o.status = '已退押金'; o.refund = req.amount; o.refundDate = req.date; o.refundLast5 = req.last5; log(`已退押金 ${req.amount}（${req.date} 轉出，後五碼 ${req.last5}）`); break;
       case 'cancel':
         if (o.status === '已付款' || o.status === '已出貨') { o.status = '待退款'; o.cancelRefund = req.refund; log(`取消訂單，待退款 ${req.refund}` + (req.reason ? '：' + req.reason : '')); }

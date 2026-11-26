@@ -57,6 +57,12 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-info dt { width: 64px; flex-shrink: 0; color: var(--muted); }
 .adm-info dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .adm-info small { color: var(--muted); font-size: 12px; }
+.adm-info small.pre { display: block; line-height: 1.6; margin-top: 2px; }
+.adm-form .hint .warn { color: var(--rose-deep); font-weight: 500; }
+.adm-calc { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.adm-copy-settle { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; width: 30px; height: 30px; margin-left: 6px; padding: 0; border-radius: 50%; text-decoration: none; color: var(--rose-deep); }
+.adm-copy-row { margin: 0; }
+.adm-copy-row .adm-copy-settle { margin-left: 0; }
 .adm-info em { white-space: nowrap; display: inline-block; font-style: normal; font-size: 12px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
 .adm-info em.warn { background: var(--rose-deep); color: #fff; }
 
@@ -79,6 +85,18 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-deduct { display: flex; flex-direction: column; gap: 10px; }
 .adm-deduct[hidden] { display: none; }
 
+.adm-pick { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.adm-pick input { width: 20px; height: 20px; accent-color: var(--rose-deep); margin: 0; }
+.adm-merge-hint { margin: 8px 0 0; font-size: 13px; color: var(--rose-deep); background: var(--surface-2); border-radius: 10px; padding: 6px 10px; }
+.adm-shipbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; max-width: 720px; margin: 0 auto; background: var(--bg, #fffdf9); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: 0 -6px 20px rgba(70, 50, 40, .12); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
+.adm-shipbar .hint { margin: 0; }
+.adm-shipbar .hint.warn { color: var(--rose-deep); }
+.adm-shipbar-head { display: flex; justify-content: space-between; align-items: center; }
+.adm-shipbar-row { display: flex; gap: 8px; }
+.adm-shipbar-row input { flex: 1; min-width: 0; }
+.adm-shipbar-row .btn { flex: 0 0 auto; }
+body.has-shipbar .adm-list { padding-bottom: 220px; }
+
 .adm-log { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .adm-log summary { cursor: pointer; }
 .adm-log pre { white-space: pre-wrap; font-family: inherit; margin: 6px 0 0; line-height: 1.7; }
@@ -87,5 +105,5 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-ask { position: fixed; inset: 0; z-index: 100; background: rgba(70, 50, 40, .35); display: grid; place-items: center; padding: 24px; }
 .adm-ask-card { width: min(360px, 100%); background: var(--surface); border-radius: 18px; padding: 20px 18px 16px; box-shadow: 0 20px 60px rgba(60, 40, 30, .25); }
 .adm-ask-card p { margin: 0 0 16px; font-size: 15px; line-height: 1.7; white-space: normal; }
-.adm-ask-card input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 15px; }
+.adm-ask-card input, .adm-ask-card textarea { width: 100%; font-family: inherit; line-height: 1.6; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 15px; }
 .adm-addons small { display: block; }
