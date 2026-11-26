@@ -263,7 +263,7 @@
         ${o.extras && o.extras.length ? `<div><dt>手動加購</dt><dd class="adm-extras">${o.extras.map((x, i) => `<div>
           ${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener" class="adm-extra-img"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}
           <span>${x.category ? `<b class="adm-extra-cat">${esc(x.category)}</b>` : ''}${esc(x.note)}<small>租金 ${money(x.rent)}・押金 ${money(x.deposit)}</small></span>
-          ${o.status === '待付款' ? `<span class="adm-extra-ops"><label class="link-btn">${x.image ? '換圖片' : '加圖片'}<input type="file" accept="image/*" data-extra-img="${i}" hidden></label><button type="button" class="link-btn" data-op="removeExtra" data-idx="${i}">刪除</button></span>` : ''}
+          ${o.status === '待付款' ? `<span class="adm-extra-ops"><button type="button" class="link-btn" data-paste-for="${i}">${x.image ? '貼上換圖片' : '貼上圖片'}</button><button type="button" class="link-btn" data-op="removeExtra" data-idx="${i}">刪除</button></span>` : ''}
         </div>`).join('')}</dd></div>` : ''}
         ${o.tracking ? `<div><dt>順豐單號</dt><dd><span class="mono">${esc(o.tracking)}</span> <button type="button" class="copy" data-copy="${esc(o.tracking)}">複製</button></dd></div>` : ''}
         ${o.status === '檢查中' && o.returnedAt ? `<div><dt>收到歸還</dt><dd>${pretty(o.returnedAt)}</dd></div>` : ''}
@@ -294,12 +294,17 @@
         if (open === 'cancel') return cancelForm(form);
         if (open === 'extra') return form('addExtra', `
           ${state.extraMenu.length ? `<label>加購類別<select name="category" required><option value="">請選擇</option>${state.extraMenu.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>` : ''}
-          <label>加購說明（客戶查詢時看得到）<input name="note" required maxlength="100" placeholder="例如：白色小皮鞋 15cm"></label>
+          <label>加購說明（選填，客戶查詢時看得到）<input name="note" maxlength="100" placeholder="例如：露可咪白色雙層"></label>
           <div class="form-row">
             <label>租金（選填）<input name="rent" inputmode="numeric" placeholder="0"></label>
             <label>押金（選填）<input name="deposit" inputmode="numeric" placeholder="0"></label>
           </div>
-          <label>圖片（選填）<input type="file" name="image" accept="image/*"><small>可以拍照、從相簿選，或在電腦上直接貼上（⌘V）圖片</small></label>
+          <div class="adm-paste">
+            <span class="adm-paste-label">圖片（選填）</span>
+            <div class="adm-paste-zone" contenteditable="true" data-paste-zone aria-label="貼上圖片的地方"></div>
+            <button type="button" class="btn" data-paste-btn>貼上剪貼簿的圖片</button>
+            <small>先在相簿或 LINE 複製圖片，再按上面的按鈕；或點虛線框，電腦按 ⌘V、手機長按選「貼上」</small>
+          </div>
           <div class="adm-extra-preview" hidden></div>
           <p class="hint">加入後，應付總額會加上租金和押金。可以加好幾項，一次加一項。</p>`, '加入');
         return `<div class="adm-actions">
@@ -422,7 +427,7 @@
       case 'addExtra': {
         const amt = k => Number(v(k).replace(/[^\d]/g, '')) || 0;
         if (state.extraMenu.length && !v('category')) { toast('請選加購類別'); return; }
-        if (!v('note')) { toast('請寫加購說明'); return; }
+        if (!state.extraMenu.length && !v('note')) { toast('請寫加購說明'); return; }
         const file = f._pasted || (f.image && f.image.files[0]);
         let image = '';
         if (file) {
@@ -495,7 +500,7 @@
     if (op === 'removeExtra') {
       const o = state.orders.find(x => x.no === no);
       const x = o && o.extras[Number(t.dataset.idx)];
-      if (x && await ask(`刪除手動加購「${x.category ? x.category + '・' : ''}${x.note}」？應付總額會扣掉租金 ${money(x.rent)}、押金 ${money(x.deposit)}。`, '刪除')) {
+      if (x && await ask(`刪除手動加購「${[x.category, x.note].filter(Boolean).join('・')}」？應付總額會扣掉租金 ${money(x.rent)}、押金 ${money(x.deposit)}。`, '刪除')) {
         runOp(no, 'removeExtra', { index: Number(t.dataset.idx) }, '已刪除加購項目');
       }
       return;
@@ -539,12 +544,47 @@
     box.innerHTML = `<img src="${box.dataset.url}" alt="">`;
     box.hidden = false;
   }
-  // 電腦上可以直接貼上圖片（打開「加購項目」表單時）
+  // 從剪貼簿讀一張圖片（要使用者按按鈕才能讀；手機會跳出「貼上」確認）
+  async function readClipboardImage() {
+    if (!navigator.clipboard || !navigator.clipboard.read) throw new Error('這個瀏覽器不能直接讀剪貼簿，請點虛線框後長按選「貼上」');
+    let items;
+    try { items = await navigator.clipboard.read(); } catch (err) { throw new Error('沒有取得剪貼簿權限，請點虛線框後長按選「貼上」'); }
+    for (const it of items) {
+      const type = it.types.find(t => t.startsWith('image/'));
+      if (type) return new File([await it.getType(type)], 'paste.' + type.split('/')[1], { type });
+    }
+    throw new Error('剪貼簿裡沒有圖片，請先複製一張圖片');
+  }
+  document.addEventListener('click', async e => {
+    const pasteBtn = e.target.closest('[data-paste-btn]');
+    const pasteFor = e.target.closest('[data-paste-for]');
+    if (!pasteBtn && !pasteFor) return;
+    e.stopPropagation();
+    try {
+      const file = await readClipboardImage();
+      if (pasteBtn) {
+        const f = pasteBtn.closest('form');
+        f._pasted = file;
+        showExtraPreview(f, file);
+        toast('已貼上圖片');
+      } else {
+        const no = pasteFor.closest('.adm-card').dataset.no;
+        runOp(no, 'setExtraImage', { index: Number(pasteFor.dataset.pasteFor), image: await shrinkImage(file) }, '已更新圖片');
+      }
+    } catch (err) { toast(err.message); }
+  }, true);
+  // 虛線框只收圖片，打字的內容清掉
+  document.addEventListener('input', e => { if (e.target.matches && e.target.matches('[data-paste-zone]')) e.target.textContent = ''; });
+
+  // 電腦上可以直接貼上圖片（打開「加購項目」表單時，貼在哪裡都可以）
   document.addEventListener('paste', e => {
     const f = document.querySelector('form[data-submit="addExtra"]');
     if (!f) return;
     const item = [...((e.clipboardData && e.clipboardData.items) || [])].find(x => x.type.startsWith('image/'));
-    if (!item) return;
+    if (!item) {
+      if (e.target.matches && e.target.matches('[data-paste-zone]')) { e.preventDefault(); toast('剪貼簿裡沒有圖片，請先複製一張圖片'); }
+      return;
+    }
     e.preventDefault();
     f._pasted = item.getAsFile();
     if (f.image) f.image.value = '';

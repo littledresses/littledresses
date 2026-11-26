@@ -887,7 +887,7 @@
         <div><dt>租借商品</dt><dd>${o.items.map(p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '')).join('<br>')}</dd></div>
         ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd>${o.addons.map(a => `${esc(a.name)} × ${a.qty}`).join('<br>')}</dd></div>` : ''}
         ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
-        ${o.extras && o.extras.length ? `<div><dt>${(o.addons && o.addons.length) || o.addon ? '其他加購' : '加購'}</dt><dd class="extras">${o.extras.map(x => `<div>${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}<span>${x.category ? esc(x.category) + '・' : ''}${esc(x.note)}<br><small>租金 ${money(x.rent)}・押金 ${money(x.deposit)}</small></span></div>`).join('')}</dd></div>` : ''}
+        ${o.extras && o.extras.length ? `<div><dt>${(o.addons && o.addons.length) || o.addon ? '其他加購' : '加購'}</dt><dd class="extras">${o.extras.map(x => `<div>${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}<span>${esc([x.category, x.note].filter(Boolean).join('・'))}<br><small>租金 ${money(x.rent)}・押金 ${money(x.deposit)}</small></span></div>`).join('')}</dd></div>` : ''}
         ${o.discount ? `<div><dt>優惠碼</dt><dd>${esc(o.coupon)}（折抵 ${money(o.discount)}）</dd></div>` : ''}
         <div><dt>應付總額</dt><dd class="amount">${money(o.total)}</dd></div>
       </dl>
