@@ -702,12 +702,13 @@
   const lineHTML = () => `<p class="line-cta">付款或有任何問題，歡迎加入 ${lineLink()}，將有小幫手為您服務。</p>`;
 
   function paymentHTML(o, bank, phone) {
-    // 後台「顯示匯款資訊」填「否」：不顯示帳號和回報表單，只顯示付款說明
+    // 後台「顯示匯款資訊」填「否」：不顯示帳號，改顯示付款說明；匯款後一樣要在這裡回報
     if (bank && bank.hidden) {
       return `<div class="pay-box">
       <h3>付款方式</h3>
       <p class="notice-text">${esc(bank.message || '我們會盡快與您聯繫，提供付款方式。')}</p>
       <p class="hint">應付總額 <span class="amount">${money(o.total)}</span></p>
+      ${reportFormHTML(o, phone)}
       ${lineHTML()}
     </div>`;
     }
@@ -720,7 +721,14 @@
         <div><dt>金額</dt><dd><span class="amount">${money(o.total)}</span><button type="button" class="copy" data-copy="${o.total}">複製</button></dd></div>
       </dl>
       ${o.deadline ? `<p class="hint">請於 <b>${esc(o.deadline)}</b> 前完成匯款。</p>` : ''}
-      <form class="form report-form" data-no="${esc(o.no)}" data-phone="${esc(phone)}">
+      ${reportFormHTML(o, phone)}
+      ${lineHTML()}
+    </div>`;
+  }
+
+  // 匯款後回報：店家要看到回報才能確認收款
+  function reportFormHTML(o, phone) {
+    return `<form class="form report-form" data-no="${esc(o.no)}" data-phone="${esc(phone)}">
         <h4 class="report-title">匯款後，請回報匯款資料</h4>
         <label>匯款戶名<input name="name" required maxlength="50" placeholder="匯款人姓名"></label>
         <label>匯款銀行<input name="bank" required maxlength="50" placeholder="例如：國泰世華"></label>
@@ -730,9 +738,7 @@
         </div>
         <label>帳號後五碼<input name="last5" inputmode="numeric" maxlength="5" required placeholder="12345"></label>
         <button type="submit" class="btn primary block">送出匯款資料</button>
-      </form>
-      ${lineHTML()}
-    </div>`;
+      </form>`;
   }
 
   function remitHTML(r) {

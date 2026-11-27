@@ -116,6 +116,21 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-shipbar-row .btn { flex: 0 0 auto; }
 body.has-shipbar .adm-list { padding-bottom: 220px; }
 
+.adm-sec { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.adm-sec-title, .adm-contact summary { font-size: 13px; font-weight: 600; color: var(--ink-soft); margin: 0 0 4px; letter-spacing: .04em; }
+.adm-contact summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; margin: 0; padding: 2px 0; }
+.adm-contact summary::-webkit-details-marker { display: none; }
+.adm-fold summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 13px; font-weight: 600; color: var(--ink-soft); letter-spacing: .04em; }
+.adm-fold summary::-webkit-details-marker { display: none; }
+.adm-contact summary .adm-copy-settle, .adm-fold summary .adm-copy-settle { width: 28px; height: 28px; margin-left: 2px; }
+.adm-chev { margin-left: auto; color: var(--muted); transform: rotate(-90deg); transition: transform .2s; flex-shrink: 0; }
+details[open] > summary .adm-chev { transform: none; }
+.adm-remit-link { font-size: 13px; margin-left: 4px; }
+.adm-pop-title { font-size: 16px; margin: 0; }
+.adm-pop-sub { font-size: 12px; color: var(--muted); margin: 2px 0 10px; }
+.adm-ask-card .adm-info dt { width: 72px; }
+.adm-info small.warn { color: var(--danger); }
+.adm-contact[open] summary { margin-bottom: 4px; }
 .adm-log { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .adm-log summary { cursor: pointer; }
 .adm-log pre { white-space: pre-wrap; font-family: inherit; margin: 6px 0 0; line-height: 1.7; }
