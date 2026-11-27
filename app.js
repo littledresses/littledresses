@@ -701,6 +701,9 @@
   // 付款方式下方：加入官方 LINE
   const lineHTML = () => `<p class="line-cta">付款或有任何問題，歡迎加入 ${lineLink()}，將有小幫手為您服務。</p>`;
 
+  // 匯款期限：下單當天 23:59
+  const deadlineHTML = o => o.deadline && !o.remit ? `<p class="hint deadline">請於 <b>${esc(o.deadline)}</b> 前完成匯款並回報，逾期未回報的訂單將自動取消。</p>` : '';
+
   function paymentHTML(o, bank, phone) {
     // 後台「顯示匯款資訊」填「否」：不顯示帳號，改顯示付款說明；匯款後一樣要在這裡回報
     if (bank && bank.hidden) {
@@ -708,6 +711,7 @@
       <h3>付款方式</h3>
       <p class="notice-text">${esc(bank.message || '我們會盡快與您聯繫，提供付款方式。')}</p>
       <p class="hint">應付總額 <span class="amount">${money(o.total)}</span></p>
+      ${deadlineHTML(o)}
       ${reportFormHTML(o, phone)}
       ${lineHTML()}
     </div>`;
@@ -720,7 +724,7 @@
         <div><dt>戶名</dt><dd>${esc(bank.holder)}</dd></div>
         <div><dt>金額</dt><dd><span class="amount">${money(o.total)}</span><button type="button" class="copy" data-copy="${o.total}">複製</button></dd></div>
       </dl>
-      ${o.deadline ? `<p class="hint">請於 <b>${esc(o.deadline)}</b> 前完成匯款。</p>` : ''}
+      ${deadlineHTML(o)}
       ${reportFormHTML(o, phone)}
       ${lineHTML()}
     </div>`;
@@ -1077,8 +1081,8 @@
       return {
         ok: true,
         shop: {
-          name: '蒔光衣櫥', rentalDays: 5, gapDays: 4, minLeadDays: 3, maxAheadDays: 90, shippingFee: 0, paymentHours: 24, lineUrl: '', fbUrl: '',
-          notice: '・訂單成立後請於期限內完成匯款，逾期未付款的訂單可能會被取消。\n・衣服會以順豐寄出，於租借起日前送達。\n・請於租借迄日當天以順豐寄回，包裹內會附上回寄說明。\n・押金於收到衣服並確認無損後全額退還。\n・如有難以清除的污漬或損壞，將視情況從押金扣除清潔或修補費用。\n・衣服皆已專業清洗，歸還前無須自行清洗。',
+          name: '蒔光衣櫥', rentalDays: 5, gapDays: 4, minLeadDays: 3, maxAheadDays: 90, shippingFee: 0, lineUrl: '', fbUrl: '',
+          notice: '・請於下單當天 23:59 前完成匯款並回報，逾期未回報的訂單將自動取消。\n・衣服會以順豐寄出，於租借起日前送達。\n・請於租借迄日當天以順豐寄回，包裹內會附上回寄說明。\n・押金於收到衣服並確認無損後全額退還。\n・如有難以清除的污漬或損壞，將視情況從押金扣除清潔或修補費用。\n・衣服皆已專業清洗，歸還前無須自行清洗。',
         },
         products: [
           { id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80', qty: 1, rent: 600, deposit: 10000, images: ['images/rose-lace.jpg'] },
@@ -1137,7 +1141,7 @@
         discount: req.demoCoupon ? req.demoCoupon.discount : 0,
         addons: extra.map(a => ({ id: a.id, name: a.name, price: a.price, deposit: a.deposit, qty: a.qty })), addonTotal, addonDeposit,
         total: rentTotal - (req.demoCoupon ? req.demoCoupon.discount : 0) + addonTotal + depositTotal,
-        deadline: new Date(Date.now() + 24 * 36e5).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
+        deadline: (d => `${d.getMonth() + 1}/${d.getDate()} 23:59`)(new Date()),
         name: req.customer.name, phone: req.customer.phone, address: req.customer.address, addon: '', remit: null,
       };
       demoOrders.push(order);
