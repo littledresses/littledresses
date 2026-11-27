@@ -257,7 +257,7 @@
         ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd class="adm-addons">${o.addons.map(a => `${esc(a.name)} <b>× ${a.qty}</b>${a.deposit ? `（押金 ${money(a.deposit * a.qty)}）` : ''}`).join('<br>')}<small>跟衣服一起寄出，歸還時記得點收</small></dd></div>` : ''}
         <div><dt>金額</dt><dd>${money(o.total)}<small>（租金 ${money(o.rentTotal)}${o.discount ? `－優惠 ${money(o.discount)}` : ''}${o.addonTotal ? `＋加購 ${money(o.addonTotal)}` : ''}＋押金 ${money(o.depositTotal)}${o.shipping ? `＋運費 ${money(o.shipping)}` : ''}）</small></dd></div>
         ${o.coupon ? `<div><dt>優惠碼</dt><dd><span class="mono">${esc(o.coupon)}</span>　折抵 ${money(o.discount)}</dd></div>` : ''}
-        <div><dt>地址</dt><dd>${esc(o.address)} <button type="button" class="copy" data-copy="${esc(o.address)}">複製</button></dd></div>
+        <div><dt>地址</dt><dd>${esc(o.address)} <button type="button" class="copy" data-copy="${esc([o.name, o.phone, o.address].join('\n'))}">複製收件資料</button></dd></div>
         ${o.note ? `<div><dt>客戶備註</dt><dd class="pre">${esc(o.note)}</dd></div>` : ''}
         ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
         ${o.extras && o.extras.length ? `<div><dt>手動加購</dt><dd class="adm-extras">${o.extras.map((x, i) => `<div>

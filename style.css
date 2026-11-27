@@ -299,6 +299,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .done-hero p { margin: 0; }
 .pay-box { margin-top: 16px; border: 1px solid var(--rose); border-radius: 14px; padding: 14px; background: #fffaf8; }
 .pay-box h3 { font-size: 16px; margin-bottom: 6px; }
+.line-cta { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 14px; line-height: 1.6; }
+.line-cta a, .form small a { color: var(--rose); font-weight: 600; text-decoration: underline; }
+.cart-notes { margin: 12px 0 0; padding: 0 0 0 18px; font-size: 13px; color: var(--muted); line-height: 1.7; }
 .bank { margin: 0 0 10px; }
 .bank div { display: flex; gap: 12px; padding: 4px 0; align-items: center; }
 .bank dt { width: 52px; color: var(--muted); font-size: 13px; flex-shrink: 0; }

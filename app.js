@@ -473,6 +473,19 @@
     showModal(dlg.cart);
   }
 
+  // 「官方 LINE」「Facebook 社團」：後台設定有填網址就變成連結
+  const extLink = (text, url) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${text}</a>` : `<b>${text}</b>`;
+  const lineLink = () => extLink('官方 LINE', shop.lineUrl);
+  const fbLink = () => extLink('Facebook 社團', shop.fbUrl);
+
+  // 租借清單下方的說明
+  function cartNotesHTML() {
+    return `<ul class="cart-notes">
+      ${shop.shippingFee ? '' : '<li>租金已包含來回運費。</li>'}
+      <li>歸還的衣服經確認無污損後，押金將於 3 個工作天內全額退還至您的帳戶。</li>
+    </ul>`;
+  }
+
   function summaryHTML(items, coupon) {
     const rent = items.reduce((a, p) => a + rentOf(p, state.start), 0);
     const dep = items.reduce((a, p) => a + p.deposit, 0);
@@ -580,6 +593,7 @@
           ${state.start ? '' : '<p class="hint">還沒有選擇租借日期，請回到商品頁選好日期。</p>'}
           <div class="coupon-set"><span class="coupon-title">優惠碼（選填）</span><div id="coupon-box">${couponBoxHTML()}</div></div>
           <div id="order-summary">${summaryHTML(items, state.coupon)}</div>
+          ${cartNotesHTML()}
         </div>
         <div class="dlg-foot">
           <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '確認，填寫收件資料' : !state.start ? '請先在商品頁選擇租借日期' : !canStart(ids, state.start) ? '有衣服在這段期間無法租借' : '加購配件數量不夠，請調整'}</button>
@@ -594,7 +608,7 @@
         <label><span>姓名 <span class="req">*</span></span><input name="name" required maxlength="50" autocomplete="name" value="${esc(f.name)}"></label>
         <label><span>電話 <span class="req">*</span></span><input name="phone" type="tel" required inputmode="tel" maxlength="20" autocomplete="tel" placeholder="09xx-xxx-xxx" value="${esc(f.phone)}"><small>之後用這支電話查詢租借紀錄</small></label>
         <label><span>收件地址 <span class="req">*</span></span><input name="address" required maxlength="200" autocomplete="street-address" placeholder="收件地址，或順豐服務站名稱" value="${esc(f.address)}"></label>
-        <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="需要加購或借配件（例如髮飾、頭紗、鞋子），請寫在這裡">${esc(f.note)}</textarea><small>加購內容由我們確認後，會顯示在租借紀錄中</small></label>
+        <label>備註<textarea name="note" rows="3" maxlength="500" placeholder="有其他需求，請寫在這裡">${esc(f.note)}</textarea><small>若有需要搭配髮飾，歡迎到 ${fbLink()} 挑選款式，私訊 ${lineLink()}，將有小幫手協助加單。</small></label>
         <fieldset class="refund-set">
           <legend>退押金帳戶 <span class="req">*</span></legend>
           <p class="hint">衣服歸還、確認無損後，押金會退到這個帳戶。</p>
@@ -684,6 +698,9 @@
     </dl>`;
   }
 
+  // 付款方式下方：加入官方 LINE
+  const lineHTML = () => `<p class="line-cta">付款或有任何問題，歡迎加入 ${lineLink()}，將有小幫手為您服務。</p>`;
+
   function paymentHTML(o, bank, phone) {
     // 後台「顯示匯款資訊」填「否」：不顯示帳號和回報表單，只顯示付款說明
     if (bank && bank.hidden) {
@@ -691,6 +708,7 @@
       <h3>付款方式</h3>
       <p class="notice-text">${esc(bank.message || '我們會盡快與您聯繫，提供付款方式。')}</p>
       <p class="hint">應付總額 <span class="amount">${money(o.total)}</span></p>
+      ${lineHTML()}
     </div>`;
     }
     return `<div class="pay-box">
@@ -713,6 +731,7 @@
         <label>帳號後五碼<input name="last5" inputmode="numeric" maxlength="5" required placeholder="12345"></label>
         <button type="submit" class="btn primary block">送出匯款資料</button>
       </form>
+      ${lineHTML()}
     </div>`;
   }
 
@@ -1052,7 +1071,7 @@
       return {
         ok: true,
         shop: {
-          name: '蒔光衣櫥', rentalDays: 5, gapDays: 4, minLeadDays: 3, maxAheadDays: 90, shippingFee: 0, paymentHours: 24,
+          name: '蒔光衣櫥', rentalDays: 5, gapDays: 4, minLeadDays: 3, maxAheadDays: 90, shippingFee: 0, paymentHours: 24, lineUrl: '', fbUrl: '',
           notice: '・訂單成立後請於期限內完成匯款，逾期未付款的訂單可能會被取消。\n・衣服會以順豐寄出，於租借起日前送達。\n・請於租借迄日當天以順豐寄回，包裹內會附上回寄說明。\n・押金於收到衣服並確認無損後全額退還。\n・如有難以清除的污漬或損壞，將視情況從押金扣除清潔或修補費用。\n・衣服皆已專業清洗，歸還前無須自行清洗。',
         },
         products: [
