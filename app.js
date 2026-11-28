@@ -987,6 +987,7 @@
     const rows = [];
     if (o.tracking) rows.push(`<div><dt>順豐單號</dt><dd><span class="mono">${esc(o.tracking)}</span><button type="button" class="copy" data-copy="${esc(o.tracking)}">複製</button>${o.shippedAt ? `<br><small>${D.full(o.shippedAt)} 寄出</small>` : ''}</dd></div>`);
     if (o.extendFee) rows.push(`<div><dt>延期加收</dt><dd>${money(o.extendFee)}<br><small>會從押金扣除</small></dd></div>`);
+    if (o.rushDeposit) rows.push(`<div><dt>加急費</dt><dd>${money(o.rushDeposit)}<br><small>急件，會從押金扣除</small></dd></div>`);
     if (o.returnedAt) rows.push(`<div><dt>歸還驗收</dt><dd>${!o.inspected ? `已收到衣服，檢查中<br><small>${D.full(o.returnedAt)} 收到</small>` : o.deduct ? `扣款 ${money(o.deduct)}<br><small class="pre">${esc(o.deductReason)}</small>` : '衣服完好，謝謝您 ✦'}</dd></div>`);
     // 退款日期＋轉出帳號後五碼，方便客戶對帳（舊資料沒有的話用系統記錄的時間）
     const refundNote = at => o.refundDate ? `<br><small>${D.full(o.refundDate)} 已退回您的帳戶${o.refundLast5 ? `<br>轉出帳號後五碼 ${esc(o.refundLast5)}` : ''}</small>` : at ? `<br><small>${D.full(at)} 已退回您的帳戶</small>` : '';
@@ -1084,6 +1085,12 @@
     new IntersectionObserver(([en]) => header.classList.toggle('show-mark', en.intersectionRatio < .5),
       { rootMargin: `-${header.offsetHeight}px 0px 0px 0px`, threshold: [0, .5, 1] }).observe(hero);
   }
+
+  // 日期欄：點欄位任何地方就打開日曆，不用剛好點到日曆圖示
+  document.addEventListener('click', e => {
+    const d = e.target.closest('input[type="date"]');
+    if (d && !d.disabled && d.showPicker) { try { d.showPicker(); } catch (err) { /* 有些瀏覽器不支援，維持原本行為 */ } }
+  });
 
   async function init() {
     if (DEMO) $('#demo-banner').hidden = false;

@@ -422,3 +422,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .photo-nav.next { right: 10px; }
 .photo-count { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); background: rgba(94, 74, 62, .65); color: #fff; font-size: 12px; padding: 2px 10px; border-radius: 999px; }
 .photo-caption { margin: 0; padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); font-size: 13px; color: var(--muted); text-align: center; }
+
+/* 日期欄整格都可以點開日曆 */
+input[type="date"] { cursor: pointer; }
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }

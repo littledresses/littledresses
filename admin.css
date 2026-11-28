@@ -153,3 +153,7 @@ details[open] > summary .adm-chev { transform: none; }
 .adm-ask-card p { margin: 0 0 16px; font-size: 15px; line-height: 1.7; white-space: normal; }
 .adm-ask-card input, .adm-ask-card textarea { width: 100%; font-family: inherit; line-height: 1.6; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 15px; }
 .adm-addons small { display: block; }
+
+/* 日期欄整格都可以點開日曆 */
+input[type="date"] { cursor: pointer; }
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }

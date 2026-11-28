@@ -21,13 +21,26 @@
     const d = newEnd ? daysBetween(oldEnd, newEnd) : 0;
     return d > 0 ? `加收＝總租金 ${money(rentBase(o))} × 10% × ${d} 天＝<b>${money(lateFeeOf(o, d))}</b>（從押金扣除）` : '加收＝總租金 × 10% × 延後天數（從押金扣除）';
   };
-  // 急件：迄日跟著起日移動（租期天數不變），第一次改才收加急費
-  const rushText = (o, s) => {
+  // 改日期（待付款急件／待出貨修改日期）：迄日跟著起日移動（租期天數不變）
+  // 新起日早於「今天＋最少提前天數」＝急件，加收加急費：待付款加在應付總額，待出貨從押金扣
+  const rushBefore = () => addDays(today(), state.minLead);
+  const dateText = (o, s, unpaid) => {
     if (!s) return '選好起日後，歸還日會自動跟著改。';
+    if (s === o.startDate) return `<b class="warn">${pretty(s)} 是原本的起日，請選別的日期</b>`;
     const e = addDays(s, daysBetween(o.startDate, o.endDate));
-    return `新租期：<b>${pretty(s)} ～ ${pretty(e)}</b><br>` + (o.rushFee ? `加急費已經收過 ${money(o.rushFee)}，這次不再加收。` : `自動加收加急費 <b>${money(state.rushFee)}</b>，應付總額變成 ${money(o.total + state.rushFee)}。`);
+    const head = `新租期：<b>${pretty(s)} ～ ${pretty(e)}</b><br>`;
+    if (s >= rushBefore()) return head + (unpaid ? `<b class="warn">${pretty(s)} 客人在網站上就能選，不用改成急件</b>` : '不是急件，不加收。');
+    if (o.rushed) return head + '<b class="warn">這筆已經用過急件（每筆只能一次），請選 ' + pretty(rushBefore()) + ' 起的日期</b>';
+    return head + (unpaid ? `急件，加收加急費 <b>${money(state.rushFee)}</b>，應付總額變成 ${money(o.total + state.rushFee)}。` : `急件，加急費 <b>${money(state.rushFee)}</b> 從押金扣除。`);
   };
-  const refundLeft = (o, late, repair) => Math.max(0, o.depositTotal - late - repair - (o.extendFee || 0));
+  // 待出貨改完日期：複製給客戶的改期通知
+  const dateNoticeText = o => [
+    `您好，訂單 ${o.no} 的租期已改為 ${pretty(o.startDate)} ～ ${pretty(o.endDate)}。`,
+    o.rushDeposit ? `這次是急件，加急費 ${money(o.rushDeposit)} 會在歸還後從押金扣除。` : '',
+    '衣服會在起日前寄達，有任何問題再跟我們說，謝謝您 ✦',
+  ].filter(Boolean).join('\n');
+  const depOther = o => (o.extendFee || 0) + (o.rushDeposit || 0);
+  const refundLeft = (o, late, repair) => Math.max(0, o.depositTotal - late - repair - depOther(o));
   // 傳給客戶的押金結算文字（按「複製給客戶」貼到 LINE／訊息）
   // d = { days, late, repair, reason, deduct（舊資料只有合計時）, amount }
   const settleText = (o, d) => {
@@ -37,6 +50,7 @@
     if (d.repair) lines.push(`－ 維修／清潔費 ${money(d.repair)}${d.reason ? `（${d.reason}）` : ''}`);
     if (d.deduct) lines.push(`－ 扣款 ${money(d.deduct)}${d.reason ? `（${d.reason}）` : ''}`);
     if (ext) lines.push(`－ 延期加收 ${money(ext)}`);
+    if (o.rushDeposit) lines.push(`－ 加急費 ${money(o.rushDeposit)}`);
     if (lines.length === 2) lines[1] = `衣服完好，押金 ${money(o.depositTotal)} 全額退還。`;
     else lines.push(`＝ 退還 ${money(d.amount)}`);
     lines.push('款項會轉到您下單時留的帳戶，謝謝您 ✦');
@@ -79,9 +93,9 @@
   const COPY_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
   const copyBtn = text => `<button type="button" class="copy adm-copy-settle" data-copy="${esc(text)}" aria-label="複製押金結算，傳給客戶" title="複製押金結算，傳給客戶">${COPY_ICON}</button>`;
   const calcText = (o, late, repair, days, reason) => {
-    const ext = o.extendFee || 0;
-    if (late + repair + ext > o.depositTotal) return `<b class="warn">扣款加起來超過押金 ${money(o.depositTotal)} 了</b>`;
-    const parts = [late ? ` − 延遲費 ${money(late)}` : '', repair ? ` − 維修費 ${money(repair)}` : '', ext ? ` − 延期加收 ${money(ext)}` : ''].join('');
+    const ext = o.extendFee || 0, rd = o.rushDeposit || 0;
+    if (late + repair + ext + rd > o.depositTotal) return `<b class="warn">扣款加起來超過押金 ${money(o.depositTotal)} 了</b>`;
+    const parts = [late ? ` − 延遲費 ${money(late)}` : '', repair ? ` − 維修費 ${money(repair)}` : '', ext ? ` − 延期加收 ${money(ext)}` : '', rd ? ` − 加急費 ${money(rd)}` : ''].join('');
     const amount = refundLeft(o, late, repair);
     return (late || repair ? '' : '都沒勾＝衣服完好。') + `押金 ${money(o.depositTotal)}${parts} ＝ 預計退 <b>${money(amount)}</b>`
       + copyBtn(settleText(o, { days, late, repair, reason, amount }));
@@ -111,6 +125,8 @@
     extraMenu: [], // 試算表「加購選單」的類別
     bank: null, // 試算表「設定」的匯款帳號（付款通知用）
     rushFee: 300, // 試算表「設定」的加急費（急件用）
+    minLead: 3, // 試算表「設定」的最少提前天數（判斷急件）
+    maxAhead: 90, // 最多預約天數
     shipLead: 2, // 試算表「設定」的出貨提前天數：出貨日＝起日往前推幾天
     shipDay: '', // 待出貨分頁的日期篩選：'' 全部、'today' 今日（含逾期）、或 yyyy-mm-dd
     open: {}, // 展開中的操作表單 { 訂單編號: 'reject' | 'cancel' | ... }
@@ -150,6 +166,8 @@
     if (r.bank) state.bank = r.bank;
     if (r.rushFee != null) state.rushFee = r.rushFee;
     if (r.shipLeadDays != null) state.shipLead = r.shipLeadDays;
+    if (r.minLeadDays != null) state.minLead = r.minLeadDays;
+    if (r.maxAheadDays != null) state.maxAhead = r.maxAheadDays;
     return r;
   }
 
@@ -367,6 +385,8 @@
         ${o.status === '檢查中' && o.returnedAt ? `<div><dt>收到歸還</dt><dd>${pretty(o.returnedAt)}</dd></div>` : ''}
         ${o.status === '已歸還' || o.status === '已退押金' || (o.status === '待退款' && o.cancelRefund == null) ? `<div><dt>驗收</dt><dd>${o.deduct ? `扣款 ${money(o.deduct)}<small class="pre">${esc(o.deductReason)}</small>` : '衣服完好'}</dd></div>` : ''}
         ${o.extendFee ? `<div><dt>延期加收</dt><dd>${money(o.extendFee)}<small>（從押金扣除）</small></dd></div>` : ''}
+        ${o.rushDeposit ? `<div><dt>加急費</dt><dd>${money(o.rushDeposit)}<small>（急件，從押金扣除）</small></dd></div>` : ''}
+        ${o.rescheduled ? `<div><dt>改期</dt><dd>已修改過日期<small>${esc(o.rescheduled)}</small>${o.status === '已付款' ? ` <button type="button" class="copy" data-copy="${esc(dateNoticeText(o))}">複製改期通知</button>` : ''}</dd></div>` : ''}
         ${o.refund != null ? `<div><dt>已退押金</dt><dd>${money(o.refund)}${refundProofText(o)}</dd></div>` : ''}
         ${o.cancelRefund != null ? `<div><dt>${o.status === '待退款' ? '應退款' : '已退款'}</dt><dd>${money(o.cancelRefund)}${o.status === '待退款' ? '' : refundProofText(o)}</dd></div>` : ''}
       </dl>
@@ -431,9 +451,9 @@
         if (open === 'reject') return form('rejectPay', `<label>要告訴客戶的話（客戶查詢時看得到）<textarea name="message" rows="2" maxlength="200" required>還沒看到這筆款項入帳，請確認匯款帳號和金額，或私訊我們。</textarea></label>`, '送出查帳結果');
         if (open === 'cancel') return cancelForm(form);
         if (open === 'rush') return form('rush', `
-          <label>新的起日（原本 ${pretty(o.startDate)}）<input name="startDate" type="date" required min="${today()}" max="${addDays(o.startDate, -1)}"></label>
-          <p class="hint adm-rush">${rushText(o, '')}</p>
-          <p class="hint">客戶先問過客服、你們同意後再改。系統會檢查新日期會不會跟其他客戶的檔期衝突。</p>`, '改成急件');
+          <label>急件起日（原本 ${pretty(o.startDate)}）<input name="startDate" type="date" required min="${addDays(today(), 2)}" max="${addDays(rushBefore(), -1)}"></label>
+          <p class="hint adm-rush">${dateText(o, '', true)}</p>
+          <p class="hint">急件＝客人在網站選不到的日期（早於 ${pretty(rushBefore())}），最早後天。客戶先問過客服、你們評估可以再改；每筆只能用一次急件。系統會檢查前後訂單和停運日。</p>`, '改成急件');
         if (open === 'extra') return form('addExtra', `
           ${state.extraMenu.length ? `<label>加租類別<select name="category" required><option value="">請選擇</option>${state.extraMenu.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>` : ''}
           <label>加租說明（選填，客戶查詢時看得到）<input name="note" maxlength="100" placeholder="例如：露可咪白色雙層"></label>
@@ -450,13 +470,17 @@
           <div class="adm-extra-preview" hidden></div>
           <p class="hint">加入後，應付總額會加上租金和押金。可以加好幾項，一次加一項。</p>`, '加入');
         return `<div class="adm-actions">
-          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : `<button type="button" class="btn primary" data-copy="${esc(payNoticeText(o, state.bank))}">${COPY_ICON} 付款通知</button>` + btn('extra', '＋ 加租項目') + (o.period ? '' : btn('rush', '急件'))}
+          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : `<button type="button" class="btn primary" data-copy="${esc(payNoticeText(o, state.bank))}">${COPY_ICON} 付款通知</button>` + btn('extra', '＋ 加租項目') + (o.period || o.rushed ? '' : btn('rush', '急件'))}
           ${btn('cancel', '取消訂單', 'ghost')}
         </div>`;
       case '已付款':
         if (open === 'cancel') return paidCancelForm(o, form);
+        if (open === 'reschedule') return form('reschedule', `
+          <label>新的起日（原本 ${pretty(o.startDate)}）<input name="startDate" type="date" required min="${addDays(today(), 2)}" max="${addDays(today(), state.maxAhead)}"></label>
+          <p class="hint adm-rush">${dateText(o, '', false)}</p>
+          <p class="hint">每筆只能修改一次日期。新起日早於 ${pretty(rushBefore())}（最早後天）算急件，加急費從押金扣；其他日期不加收。系統會檢查前後訂單和停運日。</p>`, '修改日期');
         return form('ship', `<label>順豐單號<input name="tracking" required autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="寄出後填寫，例如 SF1234567890"></label>`, '已寄出')
-          .replace('<button type="button" class="btn" data-op="close">取消</button>', btn('cancel', '取消訂單', 'ghost'));
+          .replace('<button type="button" class="btn" data-op="close">取消</button>', (o.period || o.rescheduled ? '' : btn('reschedule', '修改日期', 'ghost')) + btn('cancel', '取消訂單', 'ghost'));
       case '已出貨':
         if (open === 'retrack') return form('ship', `<label>修改順豐單號<input name="tracking" required value="${esc(o.tracking)}" autocapitalize="characters" autocomplete="off" spellcheck="false"></label>`, '儲存單號');
         if (open === 'cancel') return paidCancelForm(o, form);
@@ -481,7 +505,7 @@
               <label>原因（客戶查詢時看得到）<textarea name="reason" rows="2" maxlength="200" placeholder="例如：裙擺有一處勾紗，需要修補"></textarea></label>
             </div>
           </fieldset>
-          <p class="hint adm-calc" data-deposit="${o.depositTotal}" data-extend="${o.extendFee || 0}" data-rent="${rentBase(o)}">${calcText(o, 0, 0)}</p>`, '檢查完成').replace('<button type="button" class="btn" data-op="close">取消</button>', '');
+          <p class="hint adm-calc" data-deposit="${o.depositTotal}" data-extend="${o.extendFee || 0}" data-rush="${o.rushDeposit || 0}" data-rent="${rentBase(o)}">${calcText(o, 0, 0)}</p>`, '檢查完成').replace('<button type="button" class="btn" data-op="close">取消</button>', '');
       }
       case '待退款':
         if (o.cancelRefund != null) return refundAccountHTML(o) + form('refundCancel', `<label>退款金額<input name="amount" inputmode="numeric" required value="${o.cancelRefund}"></label>
@@ -491,10 +515,10 @@
         // 沒有取消退款金額的＝檢查完成、要退押金
         // falls through
       case '已歸還': {
-        const amount = Math.max(0, o.depositTotal - (o.deduct || 0) - (o.extendFee || 0));
+        const amount = Math.max(0, o.depositTotal - (o.deduct || 0) - depOther(o));
         return refundAccountHTML(o) + form('refund', `<label>退款金額<input name="amount" inputmode="numeric" required value="${amount}"></label>
           ${refundProofFields()}
-          <p class="hint">押金 ${money(o.depositTotal)}${o.lateFee || o.repairFee ? `${o.lateFee ? ` − 延遲費${o.lateDays ? `（${o.lateDays} 天）` : ''} ${money(o.lateFee)}` : ''}${o.repairFee ? ` − 維修費 ${money(o.repairFee)}` : ''}` : o.deduct ? ` − 扣款 ${money(o.deduct)}` : ''}${o.extendFee ? ` − 延期加收 ${money(o.extendFee)}` : ''} ＝ ${money(amount)}。轉帳完成後再按「已退押金」。</p>
+          <p class="hint">押金 ${money(o.depositTotal)}${o.lateFee || o.repairFee ? `${o.lateFee ? ` − 延遲費${o.lateDays ? `（${o.lateDays} 天）` : ''} ${money(o.lateFee)}` : ''}${o.repairFee ? ` − 維修費 ${money(o.repairFee)}` : ''}` : o.deduct ? ` − 扣款 ${money(o.deduct)}` : ''}${o.extendFee ? ` − 延期加收 ${money(o.extendFee)}` : ''}${o.rushDeposit ? ` − 加急費 ${money(o.rushDeposit)}` : ''} ＝ ${money(amount)}。轉帳完成後再按「已退押金」。</p>
           <p class="adm-copy-row">${copyBtn(settleText(o, refundDetail(o, amount)))}</p>`, '已退押金')
           .replace('<button type="button" class="btn" data-op="close">取消</button>', '');
       }
@@ -542,7 +566,7 @@
         await adminCall(op, Object.assign({ no }, data));
       } catch (e) {
         // 延後歸還日撞到其他檔期：先讓你確認，確定的話再送一次
-        const rush = op === 'rush';
+        const rush = op === 'rush' || op === 'reschedule';
         if (!e.conflict || !(await ask(e.message + (rush ? '\n\n仍然要改日期嗎？（請先確認衣服來得及）' : '\n\n仍然要延後嗎？（請先跟下一位客戶協調）'), rush ? '仍然改日期' : '仍然延後'))) throw e;
         await adminCall(op, Object.assign({ no, force: true }, data));
       }
@@ -556,6 +580,12 @@
       state.busy = false;
     }
   }
+
+  // 日期欄：點欄位任何地方就打開日曆，不用剛好點到日曆圖示
+  document.addEventListener('click', e => {
+    const d = e.target.closest('input[type="date"]');
+    if (d && !d.disabled && d.showPicker) { try { d.showPicker(); } catch (err) { /* 有些瀏覽器不支援，維持原本行為 */ } }
+  });
 
   // ───────── 事件 ─────────
   document.addEventListener('submit', async e => {
@@ -622,8 +652,10 @@
         runOp(no, 'extend', { newEnd: v('newEnd') }, '已延後歸還日');
         break;
       case 'rush':
+      case 'reschedule':
         if (!v('startDate')) { toast('請選新的起日'); return; }
-        runOp(no, 'rush', { startDate: v('startDate') }, '已改成急件');
+        if (v('startDate') === (state.orders.find(x => x.no === no) || {}).startDate) { toast('新的起日不能跟原本一樣'); return; }
+        runOp(no, f.dataset.submit, { startDate: v('startDate') }, f.dataset.submit === 'rush' ? '已改成急件' : '已修改日期');
         break;
     }
   });
@@ -780,7 +812,7 @@
     const calc = f.querySelector('.adm-calc');
     if (!calc) return;
     const fee = (box, k) => f[box].checked ? Number(String(f[k].value).replace(/[^\d]/g, '')) || 0 : 0;
-    const o = { depositTotal: Number(calc.dataset.deposit), extendFee: Number(calc.dataset.extend), rentTotal: Number(calc.dataset.rent) };
+    const o = { depositTotal: Number(calc.dataset.deposit), extendFee: Number(calc.dataset.extend), rushDeposit: Number(calc.dataset.rush || 0), rentTotal: Number(calc.dataset.rent) };
     const days = fee('late', 'lateDays');
     const lateFee = lateFeeOf(o, days);
     const note = f.querySelector('.adm-late');
@@ -794,10 +826,13 @@
     if (o) f.querySelector('.adm-ext').innerHTML = extText(o, o.endDate, e.target.value);
   });
   document.addEventListener('input', e => {
-    const f = e.target.name === 'startDate' && e.target.closest('form[data-submit="rush"]');
+    const f = e.target.name === 'startDate' && e.target.closest('form[data-submit="rush"],form[data-submit="reschedule"]');
     if (!f) return;
     const o = state.orders.find(x => x.no === f.closest('.adm-card').dataset.no);
-    if (o) f.querySelector('.adm-rush').innerHTML = rushText(o, e.target.value);
+    if (!o) return;
+    f.querySelector('.adm-rush').innerHTML = dateText(o, e.target.value, f.dataset.submit === 'rush');
+    // 選到原本的起日：先不能送出
+    f.querySelector('button[type="submit"]').disabled = e.target.value === o.startDate;
   });
   document.addEventListener('input', e => { if (['lateDays', 'repairFee', 'reason'].includes(e.target.name) && e.target.closest('form[data-submit="inspect"]')) updateCalc(e.target.closest('form')); });
 
@@ -937,7 +972,7 @@
       case 'inspect': {
         const lateFee = lateFeeOf(o, req.lateDays);
         const deduct = lateFee + req.repairFee;
-        if (deduct + (o.extendFee || 0) > o.depositTotal) return { ok: false, error: '扣款加上延期加收不能超過押金。' };
+        if (deduct + depOther(o) > o.depositTotal) return { ok: false, error: '扣款加上延期加收、加急費不能超過押金。' };
         const parts = [lateFee ? `延遲歸還 ${req.lateDays} 天 ${money(lateFee)}（總租金 ${money(rentBase(o))} × 10% × ${req.lateDays} 天）` : '', req.repairFee ? `維修／清潔 ${money(req.repairFee)}：${req.reason}` : ''].filter(Boolean);
         o.status = '待退款'; o.deduct = deduct; o.lateDays = req.lateDays; o.lateFee = lateFee; o.repairFee = req.repairFee; o.deductReason = parts.join('\n');
         log(deduct ? `檢查完成，扣款 ${deduct}（${parts.join('；')}）` : '檢查完成，衣服完好');
@@ -949,14 +984,25 @@
         else { o.status = '已取消'; log('取消訂單' + (req.reason ? '：' + req.reason : '')); }
         break;
       case 'refundCancel': o.status = '已取消'; o.cancelRefund = req.amount; o.refundDate = req.date; o.refundLast5 = req.last5; log(`已退款 ${req.amount}（${req.date} 轉出，後五碼 ${req.last5}）`); break;
-      case 'rush': {
-        if (!req.startDate || req.startDate < today()) return { ok: false, error: '起日不能早於今天。' };
-        if (req.startDate >= o.startDate) return { ok: false, error: `急件的起日要早於原本的 ${o.startDate}。` };
+      case 'rush':
+      case 'reschedule': {
+        const unpaid = req.op === 'rush', ns = req.startDate, rb = addDays(today(), 3);
+        if (!ns || ns < addDays(today(), 2)) return { ok: false, error: '起日最早只能選後天。' };
+        if (unpaid && o.rushed) return { ok: false, error: '這筆訂單已經用過急件了，每筆只能一次。' };
+        if (!unpaid && o.rescheduled) return { ok: false, error: '這筆訂單已經修改過一次日期了，不能再改。' };
+        if (unpaid && ns >= rb) return { ok: false, error: `${ns} 客人在網站上就能選，不用改成急件；請客人取消後自己重新下單。` };
+        const rush = ns < rb;
+        if (rush && o.rushed) return { ok: false, error: '這筆訂單已經用過急件了（每筆只能一次）。' };
         const span = dayDiff(o.startDate, o.endDate), oldS = o.startDate, oldE = o.endDate;
-        o.startDate = req.startDate; o.endDate = addDays(req.startDate, span);
-        const fee = o.rushFee ? 0 : 300;
-        if (fee) { o.rushFee = fee; o.total += fee; }
-        log(`急件：租期 ${oldS} ～ ${oldE} → ${o.startDate} ～ ${o.endDate}` + (fee ? `，加收加急費 NT$ ${fee}` : '（加急費已收過，不再加收）'));
+        o.startDate = ns; o.endDate = addDays(ns, span);
+        const fee = rush ? 300 : 0;
+        const how = !fee ? '不是急件，不加收' : unpaid ? `急件，加急費 NT$ ${fee} 加在應付總額` : `急件，加急費 NT$ ${fee} 從押金扣`;
+        const rec = `${oldS}～${oldE} → ${o.startDate}～${o.endDate}（${how}）`;
+        if (rush) o.rushed = rec;
+        if (!unpaid) o.rescheduled = rec;
+        if (fee && unpaid) { o.rushFee = fee; o.total += fee; }
+        if (fee && !unpaid) o.rushDeposit = fee;
+        log(`修改日期：${oldS} ～ ${oldE} → ${o.startDate} ～ ${o.endDate}（${how}${fee && !unpaid ? '除' : ''}）`);
         break;
       }
       case 'extend': {
@@ -971,7 +1017,7 @@
       }
     }
     demo.forEach(x => { x.paid = x.remit ? x.remit.amount : x.total; });
-    return { ok: true, name, orders: demo, extraMenu: ['髮帶', '髮圈', '頭紗', '鞋子'], shipLeadDays: 2, bank: { bankName: '國泰世華', bankCode: '013', account: '0123-4567-8901', holder: '蒔光衣櫥' } };
+    return { ok: true, name, orders: demo, extraMenu: ['髮帶', '髮圈', '頭紗', '鞋子'], shipLeadDays: 2, minLeadDays: 3, maxAheadDays: 90, rushFee: 300, bank: { bankName: '國泰世華', bankCode: '013', account: '0123-4567-8901', holder: '蒔光衣櫥' } };
   }
 
   // ───────── 啟動 ─────────
