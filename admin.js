@@ -42,6 +42,33 @@
     const m = String(o.deductReason || '').match(/維修／清潔 NT\$ [\d,]+：(.+)/);
     return { days: o.lateDays, late: o.lateFee, repair: o.repairFee, reason: m ? m[1] : '', amount };
   };
+  // 待付款「付款通知」：複製後貼到 LINE／訊息傳給客戶
+  const payNoticeText = (o, bank) => {
+    const items = o.items || [], addons = o.addons || [], extras = o.extras || [];
+    const addonDep = addons.reduce((n, a) => n + (a.deposit || 0) * a.qty, 0) + extras.reduce((n, x) => n + x.deposit, 0);
+    const sum = k => items.reduce((n, p) => n + (Number(p[k]) || 0), 0);
+    const lines = ['謝謝媽咪的租借 ♡', '', `訂單：${o.no}`];
+    // 每件衣服的租金、押金跟訂單合計對得上才分開列，對不上（例如之後改過價錢）就合併成一行
+    if (items.length && items.every(p => p.rent != null && p.deposit != null) && sum('rent') === o.rentTotal && sum('deposit') === o.depositTotal - addonDep) {
+      items.forEach(p => lines.push(`${itemName(p)}　租金 ${money(p.rent)}　押金 ${money(p.deposit)}`));
+    } else {
+      lines.push(`${items.map(itemName).join('、')}　租金 ${money(o.rentTotal)}　押金 ${money(o.depositTotal - addonDep)}`);
+    }
+    addons.forEach(a => lines.push(`${a.name} × ${a.qty}　租金 ${money((a.price || 0) * a.qty)}　押金 ${money((a.deposit || 0) * a.qty)}`));
+    extras.forEach(x => lines.push(`${[x.category, x.note].filter(Boolean).join(' ')}　租金 ${money(x.rent)}　押金 ${money(x.deposit)}`));
+    if (o.discount) lines.push(`優惠折抵 －${money(o.discount)}`);
+    if (o.shipping) lines.push(`運費 ${money(o.shipping)}`);
+    const ordered = String(o.createdAt || '').slice(0, 10);
+    const due = /^\d{4}-\d\d-\d\d$/.test(ordered) ? `於 ${pretty(addDays(ordered, 1))} 23:59 前` : '';
+    // 試算表沒填帳號（空白或還是預設的範例值）→ 不列帳號，請客戶看另外傳的圖片
+    const hasBank = bank && /\d/.test(bank.account) && !/^[0\-\s]+$/.test(bank.account) && bank.bankName !== '範例銀行';
+    lines.push(`費用一共 ${money(o.total)}`, '', hasBank ? `麻煩${due}匯款到以下帳戶，` : `麻煩${due}完成匯款（匯款帳戶請見下方圖片），`);
+    if (hasBank) lines.push(`${bank.bankCode ? bank.bankCode + ' ' : ''}${bank.bankName}`, `帳號 ${bank.account}`, `戶名 ${bank.holder}`);
+    // 連到網站首頁（管理頁跟網站在同一個資料夾），點了直接打開這張訂單的查詢畫面
+    const link = new URL('./', location.href).href + `#order=${encodeURIComponent(o.no)}&tel=${encodeURIComponent(String(o.phone || '').replace(/\D/g, ''))}`;
+    lines.push('', '匯款完成後，請到查詢訂單頁面回填匯款資訊，訂單才正式完成唷！', link);
+    return lines.join('\n');
+  };
   const COPY_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
   const copyBtn = text => `<button type="button" class="copy adm-copy-settle" data-copy="${esc(text)}" aria-label="複製押金結算，傳給客戶" title="複製押金結算，傳給客戶">${COPY_ICON}</button>`;
   const calcText = (o, late, repair, days, reason) => {
@@ -75,6 +102,7 @@
     contactOpen: new Set(), // 展開「收件資料」的訂單（重新整理畫面時保持展開）
     contactClosed: new Set(), // 待出貨預設展開；記住被收起的
     extraMenu: [], // 試算表「加購選單」的類別
+    bank: null, // 試算表「設定」的匯款帳號（付款通知用）
     open: {}, // 展開中的操作表單 { 訂單編號: 'reject' | 'cancel' | ... }
     busy: false,
   };
@@ -109,6 +137,7 @@
     }
     state.orders = r.orders || [];
     if (r.extraMenu) state.extraMenu = r.extraMenu;
+    if (r.bank) state.bank = r.bank;
     return r;
   }
 
@@ -362,7 +391,7 @@
           <div class="adm-extra-preview" hidden></div>
           <p class="hint">加入後，應付總額會加上租金和押金。可以加好幾項，一次加一項。</p>`, '加入');
         return `<div class="adm-actions">
-          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : btn('extra', '＋ 加購項目')}
+          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : `<button type="button" class="btn primary" data-copy="${esc(payNoticeText(o, state.bank))}">${COPY_ICON} 付款通知</button>` + btn('extra', '＋ 加購項目')}
           ${btn('cancel', '取消訂單', 'ghost')}
         </div>`;
       case '已付款':
@@ -769,7 +798,7 @@
     const t = today();
     const no = (d, code) => 'SG' + addDays(t, d).slice(5).replace('-', '') + '-' + code;
     const base = { shipping: 0, addon: '', note: '', internal: '', payNote: '', tracking: '', deduct: 0, deductReason: '', refund: null, extendFee: 0, cancelRefund: null };
-    const item = (id, name, size) => ({ id, brand: '多霏', name, size });
+    const item = (id, name, size) => ({ id, brand: '多霏', name, size, rent: 600, deposit: 10000 });
     const acct = { code: '013', bank: '國泰世華', account: '0123-4567-8901', holder: '林小華' };
     const list = [
       Object.assign({}, base, { no: no(0, 'H8KD'), status: '待付款', createdAt: t + ' 10:12', name: '林小華', phone: '0987654321', address: '台北市大安區復興南路一段 100 號', startDate: addDays(t, 6), endDate: addDays(t, 11), items: [item('SG002', '粉漾微光', '90')], addons: [{ id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, deposit: 150 }], addonTotal: 300, rentTotal: 600, depositTotal: 10300, total: 11200, remit: { name: '林小華', bank: '國泰世華', date: t, amount: 11200, last5: '55123' }, refundAccount: acct, log: '' }),
@@ -862,7 +891,7 @@
       }
     }
     demo.forEach(x => { x.paid = x.remit ? x.remit.amount : x.total; });
-    return { ok: true, name, orders: demo, extraMenu: ['髮帶', '髮圈', '頭紗', '鞋子'] };
+    return { ok: true, name, orders: demo, extraMenu: ['髮帶', '髮圈', '頭紗', '鞋子'], bank: { bankName: '國泰世華', bankCode: '013', account: '0123-4567-8901', holder: '蒔光衣櫥' } };
   }
 
   // ───────── 啟動 ─────────

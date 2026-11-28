@@ -701,7 +701,7 @@
   // 付款方式下方：加入官方 LINE
   const lineHTML = () => `<p class="line-cta">付款或有任何問題，歡迎加入 ${lineLink()}，將有小幫手為您服務。</p>`;
 
-  // 匯款期限：下單當天 23:59
+  // 匯款期限：下單隔天 23:59
   const deadlineHTML = o => o.deadline && !o.remit ? `<p class="hint deadline">請於 <b>${esc(o.deadline)}</b> 前完成匯款並回報，逾期未回報的訂單將自動取消。</p>` : '';
 
   function paymentHTML(o, bank, phone) {
@@ -855,6 +855,31 @@
     } catch (e) {
       out.innerHTML = `<p class="form-error" style="margin-top:12px">${esc(e.message || '查詢失敗，請稍後再試')}</p>`;
     }
+  }
+
+  // 付款通知裡的連結（#order=訂單編號&tel=電話）：直接打開查詢紀錄並查好這張訂單
+  // 用 # 帶參數，不會傳到伺服器；打開後就從網址拿掉
+  function openFromLink() {
+    const h = new URLSearchParams(location.hash.slice(1));
+    const no = (h.get('order') || '').trim(), tel = (h.get('tel') || '').trim();
+    if (!no || !tel) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    // 直接顯示這張訂單，不顯示查詢表單；查不到才改回一般的查詢畫面
+    dlg.lookup.innerHTML = `
+      <div class="dlg-head"><h2>我的訂單</h2><button type="button" class="dlg-close" data-close aria-label="關閉">×</button></div>
+      <div class="dlg-body"><div id="link-result"><p class="hint">讀取中…</p></div></div>`;
+    showModal(dlg.lookup);
+    apiPost({ action: 'lookup', phone: tel, no }).then(r => {
+      if (!r.ok) throw new Error(r.error);
+      const out = $('#link-result', dlg.lookup);
+      if (out) out.innerHTML = recordHTML(r.orders[0], r.bank, tel) + '<p class="hint" style="margin-top:16px;text-align:center"><button type="button" class="link-btn" data-open="lookup">查詢其他訂單</button></p>';
+    }).catch(e => {
+      openLookup();
+      const form = $('#lookup-form', dlg.lookup);
+      form.phone.value = tel;
+      form.no.value = no;
+      $('#lookup-result', dlg.lookup).innerHTML = `<p class="form-error" style="margin-top:12px">${esc(e.message || '查詢失敗，請稍後再試')}</p>`;
+    });
   }
 
   // 寄出前可以修改姓名、電話、收件地址：帶入原本的資料，送出後以表單內容為準
@@ -1038,6 +1063,7 @@
     } catch (e) {
       console.error(e);
       $('#grid').innerHTML = '<p class="error">衣服載入失敗，請稍後重新整理頁面。</p>';
+      openFromLink();
       return;
     }
     renderFilters();
@@ -1045,6 +1071,7 @@
     updateCount();
     const item = new URLSearchParams(location.search).get('item');
     if (item && byId(item)) openProduct(styleOf(byId(item)).key);
+    openFromLink();
   }
 
   // ───────── 示範模式（還沒設定 API_URL 時使用）─────────
@@ -1082,7 +1109,7 @@
         ok: true,
         shop: {
           name: '蒔光衣櫥', rentalDays: 5, gapDays: 4, minLeadDays: 3, maxAheadDays: 90, shippingFee: 0, lineUrl: '', fbUrl: '',
-          notice: '・請於下單當天 23:59 前完成匯款並回報，逾期未回報的訂單將自動取消。\n・衣服會以順豐寄出，於租借起日前送達。\n・請於租借迄日當天以順豐寄回，包裹內會附上回寄說明。\n・押金於收到衣服並確認無損後全額退還。\n・如有難以清除的污漬或損壞，將視情況從押金扣除清潔或修補費用。\n・衣服皆已專業清洗，歸還前無須自行清洗。',
+          notice: '・請於下單隔天 23:59 前完成匯款並回報，逾期未回報的訂單將自動取消。\n・衣服會以順豐寄出，於租借起日前送達。\n・請於租借迄日當天以順豐寄回，包裹內會附上回寄說明。\n・押金於收到衣服並確認無損後全額退還。\n・如有難以清除的污漬或損壞，將視情況從押金扣除清潔或修補費用。\n・衣服皆已專業清洗，歸還前無須自行清洗。',
         },
         products: [
           { id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80', qty: 1, rent: 600, deposit: 10000, images: ['images/rose-lace.jpg'] },
@@ -1141,7 +1168,7 @@
         discount: req.demoCoupon ? req.demoCoupon.discount : 0,
         addons: extra.map(a => ({ id: a.id, name: a.name, price: a.price, deposit: a.deposit, qty: a.qty })), addonTotal, addonDeposit,
         total: rentTotal - (req.demoCoupon ? req.demoCoupon.discount : 0) + addonTotal + depositTotal,
-        deadline: (d => `${d.getMonth() + 1}/${d.getDate()} 23:59`)(new Date()),
+        deadline: (d => `${d.getMonth() + 1}/${d.getDate()} 23:59`)(new Date(Date.now() + 864e5)),
         name: req.customer.name, phone: req.customer.phone, address: req.customer.address, addon: '', remit: null,
       };
       demoOrders.push(order);
