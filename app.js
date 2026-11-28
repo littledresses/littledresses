@@ -27,12 +27,12 @@
   let shop = null;
   let products = [];
   let bookings = {};
-  let addons = [];        // 加購配件（跟衣服一起借出、一起歸還；押金跟衣服的押金合在一起）
-  let addonBookings = {}; // { 加購編號: [[起日, 迄日], ...] }，借幾個就有幾段
+  let addons = [];        // 加租配件（跟衣服一起借出、一起歸還；押金跟衣服的押金合在一起）
+  let addonBookings = {}; // { 加租編號: [[起日, 迄日], ...] }，借幾個就有幾段
   let periods = [];       // 特殊檔期（例如過年）：{ name, type: 'slot'|'block', start, end, openDate, mult, add }
   const state = {
     cart: store.get('sg_cart', []),
-    addons: store.get('sg_addons', {}), // 選了哪些加購 { 加購編號: 數量 }，整張訂單共用
+    addons: store.get('sg_addons', {}), // 選了哪些加租 { 加租編號: 數量 }，整張訂單共用
     start: store.get('sg_start', ''),
     form: store.get('sg_form', {}),
     // 在這台裝置下單的訂單 [{ no, phone }]，新的在前；查詢紀錄時自動列出（只查詢過的不記）
@@ -112,7 +112,7 @@
     return canBook(bookings[id], (p && p.qty) || 1, start, endOf(start), shop.gapDays);
   };
   const canStart = (ids, s) => inWindow(s) && ids.every(id => isFree(id, s));
-  // 加購：這段期間最多還能借幾個
+  // 加租：這段期間最多還能借幾個
   const addonById = id => addons.find(a => a.id === id);
   function addonAvail(a, start) {
     for (let n = a.qty; n > 0; n--) if (canBook(addonBookings[a.id], a.qty, start, endOf(start), shop.gapDays, n)) return n;
@@ -328,6 +328,7 @@
         <p class="hint late-fee" id="p-late">${lateFeeText(piece, state.start)}</p>
         <h3 class="sec-title">選擇租借日期</h3>
         <p class="hint">${locked ? '同一張訂單的租借期間相同，已固定為租借清單的日期。要換日期，請先移除清單裡的衣服。' : `點選起日，迄日自動為起日＋${shop.rentalDays} 天。`}</p>
+        ${locked ? '' : `<p class="hint rush-hint">最快可預約 ${D.pretty(minStart())}。想要更早的日期，請先私訊${lineLink()} 客服小幫手詢問${shop.rushFee ? `（急件加收 ${money(shop.rushFee)}）` : ''}。</p>`}
         <div id="p-cal"></div>
         ${periodNotesHTML(piece)}
         <div id="p-status"></div>
@@ -376,16 +377,16 @@
     showModal(dlg.product);
   }
 
-  // 商品頁的加購配件：選好日期才知道這段期間還剩幾個；選的數量整張訂單共用
+  // 商品頁的加租配件：選好日期才知道這段期間還剩幾個；選的數量整張訂單共用
   function renderAddonPicker() {
     const box = $('#p-addons', dlg.product);
     if (!box) return;
     if (!addons.length) { box.innerHTML = ''; return; }
     if (!state.start) {
-      box.innerHTML = '<h3 class="sec-title">加購配件</h3><p class="hint">選好租借日期後，可以加購配件。</p>';
+      box.innerHTML = '<h3 class="sec-title">加租配件</h3><p class="hint">選好租借日期後，可以加租配件。</p>';
       return;
     }
-    box.innerHTML = `<h3 class="sec-title">加購配件（選填）</h3>
+    box.innerHTML = `<h3 class="sec-title">加租配件（選填）</h3>
       <p class="hint">跟衣服一起寄出、一起歸還；押金會跟衣服的押金一起退還。</p>
       <div class="addon-list">${addons.map(a => {
         const avail = addonAvail(a, state.start);
@@ -402,7 +403,7 @@
       }).join('')}</div>`;
   }
 
-  // 加購配件的照片放大檢視：疊在商品頁／租借清單上面，多張照片可以左右切換
+  // 加租配件的照片放大檢視：疊在商品頁／租借清單上面，多張照片可以左右切換
   const photoDlg = document.createElement('dialog');
   photoDlg.className = 'dlg photo-viewer';
   document.body.appendChild(photoDlg);
@@ -448,7 +449,7 @@
     if (n) state.addons[id] = n; else delete state.addons[id];
     save();
     renderAddonPicker();
-    if (d > 0 && !state.cart.length) toast('記得把衣服加入租借清單，加購會一起送出');
+    if (d > 0 && !state.cart.length) toast('記得把衣服加入租借清單，加租會一起送出');
   }
 
   function addToCart(id) {
@@ -500,8 +501,8 @@
       <div><dt>租借期間</dt><dd>${state.start ? `${D.pretty(state.start)} ～ ${D.pretty(endOf(state.start))}` : '尚未選擇'}${sl ? `<br><span class="slot-tag">${esc(sl.name)}</span>` : ''}</dd></div>
       <div><dt>租金（${items.length} 件${sl ? '・' + esc(sl.name) : ''}）</dt><dd>${money(rent)}</dd></div>
       ${off ? `<div class="discount"><dt>優惠碼 ${esc(coupon.code)}</dt><dd>− ${money(off)}</dd></div>` : ''}
-      ${extra.length ? `<div><dt>加購（${extra.reduce((s, x) => s + x.qty, 0)} 個）</dt><dd>${money(addonSum)}</dd></div>` : ''}
-      <div><dt>押金${addonDep ? '（含加購）' : ''}</dt><dd>${money(depAll)}</dd></div>
+      ${extra.length ? `<div><dt>加租（${extra.reduce((s, x) => s + x.qty, 0)} 個）</dt><dd>${money(addonSum)}</dd></div>` : ''}
+      <div><dt>押金${addonDep ? '（含加租）' : ''}</dt><dd>${money(depAll)}</dd></div>
       ${ship ? `<div><dt>順豐運費</dt><dd>${money(ship)}</dd></div>` : ''}
       <div class="total"><dt>應付總額</dt><dd>${money(rent - off + addonSum + depAll + ship)}</dd></div>
     </dl>`;
@@ -582,9 +583,9 @@
             return `<div class="line addon-line ${bad ? 'bad' : ''}">
               <button type="button" class="addon-photo" data-addon-photo="${esc(a.id)}" aria-label="放大看 ${esc(a.name)} 的照片">${imgTag(a.images[0] || placeholder({ id: a.id }), a.name, a.id)}</button>
               <div class="line-info">
-                <span class="line-brand">加購配件</span>
+                <span class="line-brand">加租配件</span>
                 <b>${esc(a.name)} × ${qty}</b>
-                <span>加購 ${money(a.price * qty)}${a.deposit ? `・押金 ${money(a.deposit * qty)}` : ''}</span>
+                <span>加租 ${money(a.price * qty)}${a.deposit ? `・押金 ${money(a.deposit * qty)}` : ''}</span>
                 ${bad ? '<em>這段期間不夠借了，請到商品頁減少數量或移除</em>' : ''}
               </div>
               <button type="button" class="icon-btn" data-remove-addon="${esc(a.id)}">移除</button>
@@ -596,7 +597,7 @@
           ${cartNotesHTML()}
         </div>
         <div class="dlg-foot">
-          <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '確認，填寫收件資料' : !state.start ? '請先在商品頁選擇租借日期' : !canStart(ids, state.start) ? '有衣服在這段期間無法租借' : '加購配件數量不夠，請調整'}</button>
+          <button type="button" class="btn primary block" id="to-form" ${allOk ? '' : 'disabled'}>${allOk ? '確認，填寫收件資料' : !state.start ? '請先在商品頁選擇租借日期' : !canStart(ids, state.start) ? '有衣服在這段期間無法租借' : '加租配件數量不夠，請調整'}</button>
         </div>`;
       return;
     }
@@ -690,9 +691,9 @@
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${D.pretty(o.startDate)} ～ ${D.pretty(o.endDate)}${o.period ? `<br><span class="slot-tag">${esc(o.period)}</span>` : ''}</dd></div>
       ${o.items.map(p => `<div><dt>${esc(fullName(p))}${p.size ? `（${esc(p.size)}）` : ''}</dt><dd>${p.rent != null ? money(p.rent) : ''}</dd></div>`).join('')}
-      ${(o.addons || []).map(a => `<div><dt>加購 ${esc(a.name)} × ${a.qty}</dt><dd>${money(a.price * a.qty)}</dd></div>`).join('')}
+      ${(o.addons || []).map(a => `<div><dt>加租 ${esc(a.name)} × ${a.qty}</dt><dd>${money(a.price * a.qty)}</dd></div>`).join('')}
       ${o.discount ? `<div class="discount"><dt>優惠碼 ${esc(o.coupon)}</dt><dd>− ${money(o.discount)}</dd></div>` : ''}
-      <div><dt>押金${o.addonDeposit ? '（含加購）' : ''}</dt><dd>${money(o.depositTotal)}</dd></div>
+      <div><dt>押金${o.addonDeposit ? '（含加租）' : ''}</dt><dd>${money(o.depositTotal)}</dd></div>
       ${o.shipping ? `<div><dt>順豐運費</dt><dd>${money(o.shipping)}</dd></div>` : ''}
       <div class="total"><dt>應付總額</dt><dd>${money(o.total)}</dd></div>
     </dl>`;
@@ -938,18 +939,47 @@
         ${o.period ? `<div><dt>檔期</dt><dd><span class="slot-tag">${esc(o.period)}</span></dd></div>` : ''}
         <div><dt>租借起日</dt><dd>${D.full(o.startDate)}</dd></div>
         <div><dt>截止日</dt><dd>${D.full(o.endDate)}</dd></div>
-        <div><dt>租借商品</dt><dd>${o.items.map(p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '')).join('<br>')}</dd></div>
-        ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd>${o.addons.map(a => `${esc(a.name)} × ${a.qty}`).join('<br>')}</dd></div>` : ''}
-        ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
-        ${o.extras && o.extras.length ? `<div><dt>${(o.addons && o.addons.length) || o.addon ? '其他加購' : '加購'}</dt><dd class="extras">${o.extras.map(x => `<div>${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}<span>${esc([x.category, x.note].filter(Boolean).join('・'))}<br><small>租金 ${money(x.rent)}・押金 ${money(x.deposit)}</small></span></div>`).join('')}</dd></div>` : ''}
-        ${o.discount ? `<div><dt>優惠碼</dt><dd>${esc(o.coupon)}（折抵 ${money(o.discount)}）</dd></div>` : ''}
-        <div><dt>應付總額</dt><dd class="amount">${money(o.total)}</dd></div>
       </dl>
+      ${feeHTML(o)}
       ${o.canEditContact ? contactFormHTML(o, phone) : ''}
       ${o.payNote && o.status === '待付款' ? `<div class="notice-box"><b>查帳結果</b><p>${esc(o.payNote)}</p><p class="hint">請確認後重新回報匯款資料，或私訊我們。</p></div>` : ''}
       ${needPay ? paymentHTML(o, bank, phone) : o.remit ? remitHTML(o.remit) : ''}
       ${progressHTML(o)}
     </article>`;
+  }
+
+  // 費用明細：每一項的租金、押金，再列優惠、運費、加急費和應付總額
+  function feeHTML(o) {
+    const items = o.items || [], addons = o.addons || [], extras = o.extras || [];
+    const sum = (list, f) => list.reduce((n, x) => n + (Number(f(x)) || 0), 0);
+    const addonDep = sum(addons, a => (a.deposit || 0) * a.qty) + sum(extras, x => x.deposit);
+    const itemDep = o.depositTotal != null ? o.depositTotal - addonDep : null;
+    // 每件衣服的金額跟訂單合計對得上才分開列（特殊檔期價、之後改過價錢時合併成一行）
+    const perItem = items.every(p => p.rent != null && p.deposit != null)
+      && (o.rentTotal == null || sum(items, p => p.rent) === o.rentTotal)
+      && (itemDep == null || sum(items, p => p.deposit) === itemDep);
+    const nm = p => esc(fullName(p)) + (p.size ? `（${esc(p.size)}）` : '');
+    const row = (name, rent, dep) => `<div class="fee-row"><span class="fee-name">${name}</span><span>${rent == null ? '' : money(rent)}</span><span>${dep == null ? '' : money(dep)}</span></div>`;
+    const rows = perItem
+      ? items.map(p => row(nm(p), p.rent, p.deposit))
+      : [row(items.map(nm).join('<br>'), o.rentTotal, itemDep)];
+    addons.forEach(a => rows.push(row(`${esc(a.name)} × ${a.qty}`, a.price != null ? a.price * a.qty : null, a.deposit != null ? a.deposit * a.qty : null)));
+    extras.forEach(x => rows.push(row(`${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}${esc([x.category, x.note].filter(Boolean).join('・'))}`, x.rent, x.deposit)));
+    const rentAll = o.rentTotal != null ? o.rentTotal + (o.addonTotal || 0) : null;
+    const extra = [
+      o.discount ? `<div class="discount"><dt>優惠碼 ${esc(o.coupon)}</dt><dd>− ${money(o.discount)}</dd></div>` : '',
+      o.shipping ? `<div><dt>順豐運費</dt><dd>${money(o.shipping)}</dd></div>` : '',
+      o.rushFee ? `<div><dt>加急費</dt><dd>${money(o.rushFee)}</dd></div>` : '',
+    ].join('');
+    return `<h4 class="record-sec">費用明細</h4>
+      <div class="fee-table">
+        <div class="fee-row fee-head"><span class="fee-name">項目</span><span>租金</span><span>押金</span></div>
+        ${rows.join('')}
+        ${rentAll != null && o.depositTotal != null ? `<div class="fee-row fee-sub"><span class="fee-name">小計</span><span>${money(rentAll)}</span><span>${money(o.depositTotal)}</span></div>` : ''}
+      </div>
+      ${o.addon ? `<p class="hint pre fee-note">${esc(o.addon)}</p>` : ''}
+      <dl class="summary fee-sum">${extra}<div class="total"><dt>應付總額</dt><dd>${money(o.total)}</dd></div></dl>
+      ${o.depositTotal ? `<p class="hint fee-note">押金在衣服歸還、檢查無誤後退還。</p>` : ''}`;
   }
 
   // 出貨、歸還、退押金的進度
@@ -1082,13 +1112,14 @@
     const t = D.today();
     return [{
       no: 'SG' + D.add(t, -20).slice(5).replace(/-/g, '') + '-K7QF', status: '已退押金', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號',
-      startDate: D.add(t, -14), endDate: D.add(t, -9), items: [{ id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80' }],
-      total: 10600, addon: '', remit: { name: '陳小美', bank: '國泰世華', date: D.add(t, -19), amount: 10600, last5: '24680', confirmed: true },
+      startDate: D.add(t, -14), endDate: D.add(t, -9), items: [{ id: 'SG001', brand: '多霏', name: '粉漾微光', size: '80', rent: 600, deposit: 10000 }],
+      rentTotal: 600, depositTotal: 10000, total: 10600, addon: '', remit: { name: '陳小美', bank: '國泰世華', date: D.add(t, -19), amount: 10600, last5: '24680', confirmed: true },
       tracking: 'SF1234567890', shippedAt: D.add(t, -16), returnedAt: D.add(t, -7), inspected: true, deduct: 0, refund: 10000, refundedAt: D.add(t, -6), refundDate: D.add(t, -6), refundLast5: '88123',
     }, {
       no: 'SG' + D.add(t, -2).slice(5).replace(/-/g, '') + '-M3XA', status: '已付款', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號',
-      startDate: D.add(t, 40), endDate: D.add(t, 45), items: [{ id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90' }],
-      total: 10750, addon: '珍珠髮箍 ×1（加購 NT$ 150，已含在應付總額內）\n白色小皮鞋 15cm 借用', remit: { name: '陳小美', bank: '中國信託', date: D.add(t, -1), amount: 10750, last5: '13579', confirmed: true },
+      startDate: D.add(t, 40), endDate: D.add(t, 45), items: [{ id: 'SG005', brand: '多霏', name: '我的羅曼史', size: '90', rent: 600, deposit: 10000 }],
+      rentTotal: 600, addonTotal: 150, depositTotal: 10000, coupon: 'WELCOME100', discount: 100, total: 10650, addon: '白色小皮鞋 15cm 借用',
+      extras: [{ category: '髮飾', note: '珍珠髮箍', rent: 150, deposit: 0, image: '' }], remit: { name: '陳小美', bank: '中國信託', date: D.add(t, -1), amount: 10650, last5: '13579', confirmed: true },
     }];
   })();
   // 示範模式跟正式後台預設一樣：不顯示匯款帳號（要看有帳號的畫面，把 hidden 拿掉）
@@ -1108,7 +1139,7 @@
       return {
         ok: true,
         shop: {
-          name: '蒔光衣櫥', rentalDays: 5, gapDays: 4, minLeadDays: 3, maxAheadDays: 90, shippingFee: 0, lineUrl: '', fbUrl: '',
+          name: '蒔光衣櫥', rentalDays: 5, gapDays: 4, minLeadDays: 3, maxAheadDays: 90, shippingFee: 0, rushFee: 300, lineUrl: '', fbUrl: '',
           notice: '・請於下單隔天 23:59 前完成匯款並回報，逾期未回報的訂單將自動取消。\n・衣服會以順豐寄出，於租借起日前送達。\n・請於租借迄日當天以順豐寄回，包裹內會附上回寄說明。\n・押金於收到衣服並確認無損後全額退還。\n・如有難以清除的污漬或損壞，將視情況從押金扣除清潔或修補費用。\n・衣服皆已專業清洗，歸還前無須自行清洗。',
         },
         products: [
@@ -1120,7 +1151,7 @@
           { id: 'SG006', brand: '多霏', name: '我的羅曼史', size: '110', qty: 1, rent: 600, deposit: 10000, images: [] },
         ],
         bookings: merged,
-        // 跟正式後台預設一樣（設定「前台顯示加購」＝否）：前台不顯示加購；要看加購畫面把 DEMO_SHOW_ADDONS 改成 true
+        // 跟正式後台預設一樣（設定「前台顯示加購」＝否）：前台不顯示加租；要看加租畫面把 DEMO_SHOW_ADDONS 改成 true
         addons: !DEMO_SHOW_ADDONS ? [] : [
           { id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, deposit: 300, images: [] },
           { id: 'AD002', name: '蕾絲頭紗', qty: 1, price: 200, deposit: 0, images: [] },
@@ -1155,7 +1186,7 @@
       if (taken.length) return { ok: false, error: `很抱歉，${taken.map(p => '「' + fullName(p) + '」').join('、')}在這段期間剛好被預約了。` };
       const rentTotal = items.reduce((a, p) => a + rentOf(p, req.startDate), 0);
       const extra = (req.addons || []).map(x => Object.assign({}, addonById(x.id), { qty: x.qty }));
-      for (const a of extra) if (a.qty > addonAvail(addonById(a.id), req.startDate)) return { ok: false, error: `很抱歉，加購的「${a.name}」在這段期間不夠借了，請減少數量或移除。` };
+      for (const a of extra) if (a.qty > addonAvail(addonById(a.id), req.startDate)) return { ok: false, error: `很抱歉，加租的「${a.name}」在這段期間不夠借了，請減少數量或移除。` };
       const addonTotal = extra.reduce((s, a) => s + a.price * a.qty, 0);
       const addonDeposit = extra.reduce((s, a) => s + (a.deposit || 0) * a.qty, 0);
       const depositTotal = items.reduce((a, p) => a + p.deposit, 0) + addonDeposit;

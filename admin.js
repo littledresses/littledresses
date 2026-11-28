@@ -12,7 +12,7 @@
   const today = () => new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10);
   const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
   // 檢查完成時預計退多少押金：押金 − 延遲費 − 維修費 − 延期加收
-  // 延遲費＝總租金（租金原價＋加購）× 10% × 延遲天數（後台 Code.gs 的 LATE_FEE_RATE 要一起改）
+  // 延遲費＝總租金（租金原價＋加租）× 10% × 延遲天數（後台 Code.gs 的 LATE_FEE_RATE 要一起改）
   const LATE_FEE_RATE = 0.1;
   const rentBase = o => (o.rentTotal || 0) + (o.addonTotal || 0);
   const lateFeeOf = (o, days) => Math.round(rentBase(o) * LATE_FEE_RATE * days);
@@ -20,6 +20,12 @@
   const extText = (o, oldEnd, newEnd) => {
     const d = newEnd ? daysBetween(oldEnd, newEnd) : 0;
     return d > 0 ? `加收＝總租金 ${money(rentBase(o))} × 10% × ${d} 天＝<b>${money(lateFeeOf(o, d))}</b>（從押金扣除）` : '加收＝總租金 × 10% × 延後天數（從押金扣除）';
+  };
+  // 急件：迄日跟著起日移動（租期天數不變），第一次改才收加急費
+  const rushText = (o, s) => {
+    if (!s) return '選好起日後，歸還日會自動跟著改。';
+    const e = addDays(s, daysBetween(o.startDate, o.endDate));
+    return `新租期：<b>${pretty(s)} ～ ${pretty(e)}</b><br>` + (o.rushFee ? `加急費已經收過 ${money(o.rushFee)}，這次不再加收。` : `自動加收加急費 <b>${money(state.rushFee)}</b>，應付總額變成 ${money(o.total + state.rushFee)}。`);
   };
   const refundLeft = (o, late, repair) => Math.max(0, o.depositTotal - late - repair - (o.extendFee || 0));
   // 傳給客戶的押金結算文字（按「複製給客戶」貼到 LINE／訊息）
@@ -58,6 +64,7 @@
     extras.forEach(x => lines.push(`${[x.category, x.note].filter(Boolean).join(' ')}　租金 ${money(x.rent)}　押金 ${money(x.deposit)}`));
     if (o.discount) lines.push(`優惠折抵 －${money(o.discount)}`);
     if (o.shipping) lines.push(`運費 ${money(o.shipping)}`);
+    if (o.rushFee) lines.push(`加急費 ${money(o.rushFee)}`);
     const ordered = String(o.createdAt || '').slice(0, 10);
     const due = /^\d{4}-\d\d-\d\d$/.test(ordered) ? `於 ${pretty(addDays(ordered, 1))} 23:59 前` : '';
     // 試算表沒填帳號（空白或還是預設的範例值）→ 不列帳號，請客戶看另外傳的圖片
@@ -103,6 +110,7 @@
     contactClosed: new Set(), // 待出貨預設展開；記住被收起的
     extraMenu: [], // 試算表「加購選單」的類別
     bank: null, // 試算表「設定」的匯款帳號（付款通知用）
+    rushFee: 300, // 試算表「設定」的加急費（急件用）
     open: {}, // 展開中的操作表單 { 訂單編號: 'reject' | 'cancel' | ... }
     busy: false,
   };
@@ -138,6 +146,7 @@
     state.orders = r.orders || [];
     if (r.extraMenu) state.extraMenu = r.extraMenu;
     if (r.bank) state.bank = r.bank;
+    if (r.rushFee != null) state.rushFee = r.rushFee;
     return r;
   }
 
@@ -298,12 +307,12 @@
       <dl class="adm-info">
         <div><dt>租期</dt><dd>${pretty(o.startDate)} ～ ${pretty(o.endDate)}${o.period ? `<em class="slot">${esc(o.period)}</em>` : ''}${o.status === '已付款' && left !== null ? `<em class="${urgent ? 'warn' : ''}">${left > 0 ? `還有 ${left} 天` : left === 0 ? '今天起租' : `已過 ${-left} 天`}</em>` : ''}</dd></div>
         <div><dt>衣服</dt><dd>${o.items.map(p => esc(itemName(p))).join('<br>')}</dd></div>
-        ${o.addons && o.addons.length ? `<div><dt>加購配件</dt><dd class="adm-addons">${o.addons.map(a => `${esc(a.name)} <b>× ${a.qty}</b>${a.deposit ? `（押金 ${money(a.deposit * a.qty)}）` : ''}`).join('<br>')}<small>跟衣服一起寄出，歸還時記得點收</small></dd></div>` : ''}
-        <div><dt>金額</dt><dd>${money(o.total)}<small>（租金 ${money(o.rentTotal)}${o.discount ? `－優惠 ${money(o.discount)}` : ''}${o.addonTotal ? `＋加購 ${money(o.addonTotal)}` : ''}＋押金 ${money(o.depositTotal)}${o.shipping ? `＋運費 ${money(o.shipping)}` : ''}）</small></dd></div>
+        ${o.addons && o.addons.length ? `<div><dt>加租配件</dt><dd class="adm-addons">${o.addons.map(a => `${esc(a.name)} <b>× ${a.qty}</b>${a.deposit ? `（押金 ${money(a.deposit * a.qty)}）` : ''}`).join('<br>')}<small>跟衣服一起寄出，歸還時記得點收</small></dd></div>` : ''}
+        <div><dt>金額</dt><dd>${money(o.total)}<small>（租金 ${money(o.rentTotal)}${o.discount ? `－優惠 ${money(o.discount)}` : ''}${o.addonTotal ? `＋加租 ${money(o.addonTotal)}` : ''}＋押金 ${money(o.depositTotal)}${o.shipping ? `＋運費 ${money(o.shipping)}` : ''}${o.rushFee ? `＋加急費 ${money(o.rushFee)}` : ''}）</small></dd></div>
         ${o.coupon ? `<div><dt>優惠碼</dt><dd><span class="mono">${esc(o.coupon)}</span>　折抵 ${money(o.discount)}</dd></div>` : ''}
         ${o.note ? `<div><dt>客戶備註</dt><dd class="pre">${esc(o.note)}</dd></div>` : ''}
-        ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加購' : '加購'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
-        ${o.extras && o.extras.length ? `<div><dt>手動加購</dt><dd class="adm-extras">${o.extras.map((x, i) => `<div>
+        ${o.addon ? `<div><dt>${o.addons && o.addons.length ? '其他加租' : '加租'}</dt><dd class="pre">${esc(o.addon)}</dd></div>` : ''}
+        ${o.extras && o.extras.length ? `<div><dt>手動加租</dt><dd class="adm-extras">${o.extras.map((x, i) => `<div>
           ${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener" class="adm-extra-img"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}
           <span>${x.category ? `<b class="adm-extra-cat">${esc(x.category)}</b>` : ''}${esc(x.note)}<small>租金 ${money(x.rent)}・押金 ${money(x.deposit)}</small></span>
           ${o.status === '待付款' ? `<span class="adm-extra-ops"><button type="button" class="link-btn" data-paste-for="${i}">${x.image ? '貼上換圖片' : '貼上圖片'}</button><button type="button" class="link-btn" data-op="removeExtra" data-idx="${i}">刪除</button></span>` : ''}
@@ -375,9 +384,13 @@
       case '待付款':
         if (open === 'reject') return form('rejectPay', `<label>要告訴客戶的話（客戶查詢時看得到）<textarea name="message" rows="2" maxlength="200" required>還沒看到這筆款項入帳，請確認匯款帳號和金額，或私訊我們。</textarea></label>`, '送出查帳結果');
         if (open === 'cancel') return cancelForm(form);
+        if (open === 'rush') return form('rush', `
+          <label>新的起日（原本 ${pretty(o.startDate)}）<input name="startDate" type="date" required min="${today()}" max="${addDays(o.startDate, -1)}"></label>
+          <p class="hint adm-rush">${rushText(o, '')}</p>
+          <p class="hint">客戶先問過客服、你們同意後再改。系統會檢查新日期會不會跟其他客戶的檔期衝突。</p>`, '改成急件');
         if (open === 'extra') return form('addExtra', `
-          ${state.extraMenu.length ? `<label>加購類別<select name="category" required><option value="">請選擇</option>${state.extraMenu.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>` : ''}
-          <label>加購說明（選填，客戶查詢時看得到）<input name="note" maxlength="100" placeholder="例如：露可咪白色雙層"></label>
+          ${state.extraMenu.length ? `<label>加租類別<select name="category" required><option value="">請選擇</option>${state.extraMenu.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>` : ''}
+          <label>加租說明（選填，客戶查詢時看得到）<input name="note" maxlength="100" placeholder="例如：露可咪白色雙層"></label>
           <div class="form-row">
             <label>租金（選填）<input name="rent" inputmode="numeric" placeholder="0"></label>
             <label>押金（選填）<input name="deposit" inputmode="numeric" placeholder="0"></label>
@@ -391,7 +404,7 @@
           <div class="adm-extra-preview" hidden></div>
           <p class="hint">加入後，應付總額會加上租金和押金。可以加好幾項，一次加一項。</p>`, '加入');
         return `<div class="adm-actions">
-          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : `<button type="button" class="btn primary" data-copy="${esc(payNoticeText(o, state.bank))}">${COPY_ICON} 付款通知</button>` + btn('extra', '＋ 加購項目')}
+          ${o.remit && !o.payNote ? btn('confirmPay', '✓ 確認收款', 'primary') + btn('reject', '查無款項') : `<button type="button" class="btn primary" data-copy="${esc(payNoticeText(o, state.bank))}">${COPY_ICON} 付款通知</button>` + btn('extra', '＋ 加租項目') + (o.period ? '' : btn('rush', '急件'))}
           ${btn('cancel', '取消訂單', 'ghost')}
         </div>`;
       case '已付款':
@@ -483,7 +496,8 @@
         await adminCall(op, Object.assign({ no }, data));
       } catch (e) {
         // 延後歸還日撞到其他檔期：先讓你確認，確定的話再送一次
-        if (!e.conflict || !(await ask(e.message + '\n\n仍然要延後嗎？（請先跟下一位客戶協調）', '仍然延後'))) throw e;
+        const rush = op === 'rush';
+        if (!e.conflict || !(await ask(e.message + (rush ? '\n\n仍然要改日期嗎？（請先確認衣服來得及）' : '\n\n仍然要延後嗎？（請先跟下一位客戶協調）'), rush ? '仍然改日期' : '仍然延後'))) throw e;
         await adminCall(op, Object.assign({ no, force: true }, data));
       }
       delete state.open[no];
@@ -508,14 +522,14 @@
     switch (f.dataset.submit) {
       case 'addExtra': {
         const amt = k => Number(v(k).replace(/[^\d]/g, '')) || 0;
-        if (state.extraMenu.length && !v('category')) { toast('請選加購類別'); return; }
-        if (!state.extraMenu.length && !v('note')) { toast('請寫加購說明'); return; }
+        if (state.extraMenu.length && !v('category')) { toast('請選加租類別'); return; }
+        if (!state.extraMenu.length && !v('note')) { toast('請寫加租說明'); return; }
         const file = f._pasted || (f.image && f.image.files[0]);
         let image = '';
         if (file) {
           try { image = await shrinkImage(file); } catch (err) { toast(err.message); return; }
         }
-        runOp(no, 'addExtra', { category: v('category'), note: v('note'), rent: amt('rent'), deposit: amt('deposit'), image }, '已加入加購項目');
+        runOp(no, 'addExtra', { category: v('category'), note: v('note'), rent: amt('rent'), deposit: amt('deposit'), image }, '已加入加租項目');
         break;
       }
       case 'rejectPay': runOp(no, 'rejectPay', { message: v('message') }, '已回覆查帳結果'); break;
@@ -561,6 +575,10 @@
       case 'extend':
         runOp(no, 'extend', { newEnd: v('newEnd') }, '已延後歸還日');
         break;
+      case 'rush':
+        if (!v('startDate')) { toast('請選新的起日'); return; }
+        runOp(no, 'rush', { startDate: v('startDate') }, '已改成急件');
+        break;
     }
   });
 
@@ -582,8 +600,8 @@
     if (op === 'removeExtra') {
       const o = state.orders.find(x => x.no === no);
       const x = o && o.extras[Number(t.dataset.idx)];
-      if (x && await ask(`刪除手動加購「${[x.category, x.note].filter(Boolean).join('・')}」？應付總額會扣掉租金 ${money(x.rent)}、押金 ${money(x.deposit)}。`, '刪除')) {
-        runOp(no, 'removeExtra', { index: Number(t.dataset.idx) }, '已刪除加購項目');
+      if (x && await ask(`刪除手動加租「${[x.category, x.note].filter(Boolean).join('・')}」？應付總額會扣掉租金 ${money(x.rent)}、押金 ${money(x.deposit)}。`, '刪除')) {
+        runOp(no, 'removeExtra', { index: Number(t.dataset.idx) }, '已刪除加租項目');
       }
       return;
     }
@@ -598,7 +616,7 @@
 
   // 記下哪個表單動過，切回 App 時不要自動重新整理
   ['input', 'change'].forEach(t => document.addEventListener(t, e => { const f = e.target.closest && e.target.closest('form[data-submit]'); if (f) f.dataset.dirty = '1'; }));
-  // 手動加購圖片：先在手機上縮小（最長邊 1200px 的 JPEG）再上傳，省流量也比較快
+  // 手動加租圖片：先在手機上縮小（最長邊 1200px 的 JPEG）再上傳，省流量也比較快
   async function shrinkImage(file) {
     if (!/^image\//.test(file.type || 'image/')) throw new Error('請選一張圖片');
     const url = URL.createObjectURL(file);
@@ -666,7 +684,7 @@
   // 虛線框只收圖片，打字的內容清掉
   document.addEventListener('input', e => { if (e.target.matches && e.target.matches('[data-paste-zone]')) e.target.textContent = ''; });
 
-  // 電腦上可以直接貼上圖片（打開「加購項目」表單時，貼在哪裡都可以）
+  // 電腦上可以直接貼上圖片（打開「加租項目」表單時，貼在哪裡都可以）
   document.addEventListener('paste', e => {
     const f = document.querySelector('form[data-submit="addExtra"]');
     if (!f) return;
@@ -728,6 +746,12 @@
     if (!f) return;
     const o = state.orders.find(x => x.no === f.closest('.adm-card').dataset.no);
     if (o) f.querySelector('.adm-ext').innerHTML = extText(o, o.endDate, e.target.value);
+  });
+  document.addEventListener('input', e => {
+    const f = e.target.name === 'startDate' && e.target.closest('form[data-submit="rush"]');
+    if (!f) return;
+    const o = state.orders.find(x => x.no === f.closest('.adm-card').dataset.no);
+    if (o) f.querySelector('.adm-rush').innerHTML = rushText(o, e.target.value);
   });
   document.addEventListener('input', e => { if (['lateDays', 'repairFee', 'reason'].includes(e.target.name) && e.target.closest('form[data-submit="inspect"]')) updateCalc(e.target.closest('form')); });
 
@@ -802,11 +826,11 @@
     const acct = { code: '013', bank: '國泰世華', account: '0123-4567-8901', holder: '林小華' };
     const list = [
       Object.assign({}, base, { no: no(0, 'H8KD'), status: '待付款', createdAt: t + ' 10:12', name: '林小華', phone: '0987654321', address: '台北市大安區復興南路一段 100 號', startDate: addDays(t, 6), endDate: addDays(t, 11), items: [item('SG002', '粉漾微光', '90')], addons: [{ id: 'AD001', name: '珍珠髮帶', qty: 2, price: 150, deposit: 150 }], addonTotal: 300, rentTotal: 600, depositTotal: 10300, total: 11200, remit: { name: '林小華', bank: '國泰世華', date: t, amount: 11200, last5: '55123' }, refundAccount: acct, log: '' }),
-      Object.assign({}, base, { no: no(0, 'P2WQ'), status: '待付款', createdAt: t + ' 09:40', name: '張美玲', phone: '0922333444', address: '順豐 台中文心站', startDate: addDays(t, 9), endDate: addDays(t, 14), items: [item('SG004', '我的羅曼史', '80'), item('SG003', '粉漾微光', '100')], rentTotal: 1200, coupon: 'WELCOME100', discount: 100, depositTotal: 20000, total: 21100, remit: { name: '張美玲', bank: '中國信託', date: t, amount: 20000, last5: '77001' }, note: '想加購珍珠髮箍', refundAccount: acct, log: '' }),
+      Object.assign({}, base, { no: no(0, 'P2WQ'), status: '待付款', createdAt: t + ' 09:40', name: '張美玲', phone: '0922333444', address: '順豐 台中文心站', startDate: addDays(t, 9), endDate: addDays(t, 14), items: [item('SG004', '我的羅曼史', '80'), item('SG003', '粉漾微光', '100')], rentTotal: 1200, coupon: 'WELCOME100', discount: 100, depositTotal: 20000, total: 21100, remit: { name: '張美玲', bank: '中國信託', date: t, amount: 20000, last5: '77001' }, note: '想加租珍珠髮箍', refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-1, 'Z7MN'), status: '待付款', createdAt: addDays(t, -1) + ' 21:05', name: '王大明', phone: '0911222333', address: '新北市板橋區文化路一段 1 號', startDate: addDays(t, 12), endDate: addDays(t, 17), items: [item('SG006', '我的羅曼史', '110')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: null, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-2, 'Q8RP'), status: '已付款', period: '2027 過年檔（示範）', createdAt: addDays(t, -2) + ' 18:30', name: '黃欣怡', phone: '0933222111', address: '台中市西屯區台灣大道三段 99 號', startDate: addDays(t, 4), endDate: addDays(t, 9), items: [item('SG003', '粉漾微光', '100')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: { name: '黃欣怡', bank: '台新', date: addDays(t, -1), amount: 10600, last5: '44556' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-2, 'T6YU'), status: '已付款', createdAt: addDays(t, -2) + ' 20:05', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號', startDate: addDays(t, 2), endDate: addDays(t, 7), items: [item('SG002', '粉漾微光', '90')], rentTotal: 600, depositTotal: 10000, total: 10600, remit: { name: '陳小美', bank: '中國信託', date: addDays(t, -1), amount: 10600, last5: '13580' }, refundAccount: acct, log: '' }),
-      Object.assign({}, base, { no: no(-3, 'M3XA'), status: '已付款', createdAt: addDays(t, -3) + ' 14:20', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號', startDate: addDays(t, 2), endDate: addDays(t, 7), items: [item('SG005', '我的羅曼史', '90')], rentTotal: 600, depositTotal: 10000, total: 10750, addon: '珍珠髮箍 ×1（加購 NT$ 150）', remit: { name: '陳小美', bank: '中國信託', date: addDays(t, -2), amount: 10750, last5: '13579' }, refundAccount: acct, log: '' }),
+      Object.assign({}, base, { no: no(-3, 'M3XA'), status: '已付款', createdAt: addDays(t, -3) + ' 14:20', name: '陳小美', phone: '0912345678', address: '高雄市左營區博愛二路 2 號', startDate: addDays(t, 2), endDate: addDays(t, 7), items: [item('SG005', '我的羅曼史', '90')], rentTotal: 600, depositTotal: 10000, total: 10750, addon: '珍珠髮箍 ×1（加租 NT$ 150）', remit: { name: '陳小美', bank: '中國信託', date: addDays(t, -2), amount: 10750, last5: '13579' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-8, 'R4TE'), status: '已出貨', createdAt: addDays(t, -8) + ' 11:00', name: '李安安', phone: '0933444555', address: '桃園市中壢區中正路 3 號', startDate: addDays(t, -3), endDate: addDays(t, 2), items: [item('SG001', '粉漾微光', '80')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF1029384756', remit: { name: '李安安', bank: '台新', date: addDays(t, -7), amount: 10600, last5: '24680' }, refundAccount: acct, log: '' }),
       Object.assign({}, base, { no: no(-15, 'B9CV'), status: '待退款', createdAt: addDays(t, -15) + ' 16:30', name: '周曉雯', phone: '0955666777', address: '台南市東區大學路 1 號', startDate: addDays(t, -10), endDate: addDays(t, -5), items: [item('SG004', '我的羅曼史', '80')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF5647382910', deduct: 620, lateDays: 2, lateFee: 120, repairFee: 500, deductReason: '延遲歸還 2 天 NT$ 120（總租金 NT$ 600 × 10% × 2 天）\n維修／清潔 NT$ 500：裙擺一處勾紗，需要修補', remit: { name: '周曉雯', bank: '玉山', date: addDays(t, -14), amount: 10600, last5: '11223' }, refundAccount: { code: '808', bank: '玉山銀行', account: '0987-6543-2100', holder: '周曉雯' }, log: '' }),
       Object.assign({}, base, { no: no(-12, 'K5WS'), status: '檢查中', createdAt: addDays(t, -12) + ' 19:10', name: '吳佳佳', phone: '0966777888', address: '新竹市東區光復路 2 號', startDate: addDays(t, -8), endDate: addDays(t, -3), returnedAt: addDays(t, -1), items: [item('SG006', '我的羅曼史', '110')], rentTotal: 600, depositTotal: 10000, total: 10600, tracking: 'SF2233445566', remit: { name: '吳佳佳', bank: '富邦', date: addDays(t, -11), amount: 10600, last5: '99881' }, refundAccount: { code: '012', bank: '台北富邦', account: '1111-2222-3333', holder: '吳佳佳' }, log: '' }),
@@ -844,16 +868,16 @@
     const now = new Date(Date.now() + 8 * 36e5).toISOString().slice(5, 16).replace('-', '/').replace('T', ' ');
     const log = text => { o.log = (o.log ? o.log + '\n' : '') + `${now} ${name}：${text}`; };
     switch (req.op) {
-      case 'setExtraImage': o.extras[req.index].image = req.image; log('更換手動加購圖片：' + o.extras[req.index].note); break;
+      case 'setExtraImage': o.extras[req.index].image = req.image; log('更換手動加租圖片：' + o.extras[req.index].note); break;
       case 'addExtra':
         o.extras = (o.extras || []).concat([{ category: req.category || '', note: req.note, rent: req.rent, deposit: req.deposit, image: req.image || '' }]);
         o.addonTotal = (o.addonTotal || 0) + req.rent; o.depositTotal += req.deposit; o.total += req.rent + req.deposit;
-        log(`手動加購：${req.note}（租金 ${req.rent}／押金 ${req.deposit}）`);
+        log(`手動加租：${req.note}（租金 ${req.rent}／押金 ${req.deposit}）`);
         break;
       case 'removeExtra': {
         const x = o.extras.splice(req.index, 1)[0];
         o.addonTotal -= x.rent; o.depositTotal -= x.deposit; o.total -= x.rent + x.deposit;
-        log('刪除手動加購：' + x.note);
+        log('刪除手動加租：' + x.note);
         break;
       }
       case 'confirmPay': o.status = '已付款'; o.payNote = ''; log('確認收款'); break;
@@ -879,6 +903,16 @@
         else { o.status = '已取消'; log('取消訂單' + (req.reason ? '：' + req.reason : '')); }
         break;
       case 'refundCancel': o.status = '已取消'; o.cancelRefund = req.amount; o.refundDate = req.date; o.refundLast5 = req.last5; log(`已退款 ${req.amount}（${req.date} 轉出，後五碼 ${req.last5}）`); break;
+      case 'rush': {
+        if (!req.startDate || req.startDate < today()) return { ok: false, error: '起日不能早於今天。' };
+        if (req.startDate >= o.startDate) return { ok: false, error: `急件的起日要早於原本的 ${o.startDate}。` };
+        const span = dayDiff(o.startDate, o.endDate), oldS = o.startDate, oldE = o.endDate;
+        o.startDate = req.startDate; o.endDate = addDays(req.startDate, span);
+        const fee = o.rushFee ? 0 : 300;
+        if (fee) { o.rushFee = fee; o.total += fee; }
+        log(`急件：租期 ${oldS} ～ ${oldE} → ${o.startDate} ～ ${o.endDate}` + (fee ? `，加收加急費 NT$ ${fee}` : '（加急費已收過，不再加收）'));
+        break;
+      }
       case 'extend': {
         if (!req.newEnd || req.newEnd <= o.endDate) return { ok: false, error: `新的歸還日要晚於原本的 ${o.endDate}。` };
         // 示範：延超過 5 天就假裝撞到下一位客戶
