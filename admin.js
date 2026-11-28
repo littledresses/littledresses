@@ -111,6 +111,8 @@
     extraMenu: [], // 試算表「加購選單」的類別
     bank: null, // 試算表「設定」的匯款帳號（付款通知用）
     rushFee: 300, // 試算表「設定」的加急費（急件用）
+    shipLead: 2, // 試算表「設定」的出貨提前天數：出貨日＝起日往前推幾天
+    shipDay: '', // 待出貨分頁的日期篩選：'' 全部、'today' 今日（含逾期）、或 yyyy-mm-dd
     open: {}, // 展開中的操作表單 { 訂單編號: 'reject' | 'cancel' | ... }
     busy: false,
   };
@@ -147,6 +149,7 @@
     if (r.extraMenu) state.extraMenu = r.extraMenu;
     if (r.bank) state.bank = r.bank;
     if (r.rushFee != null) state.rushFee = r.rushFee;
+    if (r.shipLeadDays != null) state.shipLead = r.shipLeadDays;
     return r;
   }
 
@@ -203,9 +206,17 @@
     if (!state.tab) state.tab = FIRST_TAB.find(k => counts[k]) || 'unpaid';
     const tab = TABS.find(t => t.key === state.tab);
     const q = state.q.trim().toLowerCase();
-    const list = q
+    let list = q
       ? state.orders.filter(o => [o.no, o.name, o.phone, o.tracking].join(' ').toLowerCase().replace(/-/g, '').includes(q.replace(/-/g, '')))
       : state.orders.filter(tab.match);
+    // 待出貨：依出貨日排序，可以只看某一天（或今天＋逾期）要寄的
+    const shipTab = !q && state.tab === 'ship';
+    const shipAll = shipTab ? list.length : 0;
+    if (shipTab) {
+      list = list.slice().sort((a, b) => (shipDayOf(a) || '').localeCompare(shipDayOf(b) || ''));
+      if (state.shipDay === 'today') list = list.filter(o => shipDayOf(o) && shipDayOf(o) <= today());
+      else if (state.shipDay) list = list.filter(o => shipDayOf(o) === state.shipDay);
+    }
     // 合併出貨只在「待出貨」分頁；勾選中的訂單如果已經不是已付款就拿掉
     const pickMode = !q && state.tab === 'ship';
     state.pick = pickMode ? state.pick.filter(no => state.orders.some(o => o.no === no && o.status === '已付款')) : [];
@@ -223,12 +234,46 @@
       <nav class="adm-tabs">
         ${TABS.map(t => `<button type="button" data-tab="${t.key}" aria-pressed="${t.key === state.tab}">${t.label}${counts[t.key] && t.key !== 'done' ? `<span>${counts[t.key]}</span>` : ''}</button>`).join('')}
       </nav>`}
+      ${shipTab ? shipFilterHTML(list.length, shipAll) : ''}
       <main class="adm-list">
-        ${list.length ? list.map(o => cardHTML(o, pickMode)).join('') : `<p class="empty-state">${q ? '找不到符合的訂單' : '這裡目前沒有訂單 ✦'}</p>`}
+        ${list.length ? list.map(o => cardHTML(o, pickMode)).join('') : `<p class="empty-state">${q ? '找不到符合的訂單' : shipTab && state.shipDay ? '這天沒有要出貨的訂單 ✦' : '這裡目前沒有訂單 ✦'}</p>`}
       </main>
       <div id="shipbar"></div>`;
     renderShipBar();
   }
+
+  // ───────── 出貨日篩選 ─────────
+  // 出貨日＝起日往前推「出貨提前天數」；遇到週日（順豐不收件）就再往前一天到週六
+  const isSunday = s => new Date(s + 'T00:00:00Z').getUTCDay() === 0;
+  const shipDayOf = o => {
+    if (!o.startDate) return '';
+    const d = addDays(o.startDate, -state.shipLead);
+    return isSunday(d) ? addDays(d, -1) : d;
+  };
+  function shipFilterHTML(n, all) {
+    const d = state.shipDay;
+    const t = today();
+    const label = d === 'today' ? `今天（${pretty(t)}）和逾期要出貨` : d ? `${pretty(d)} 要出貨` : '全部待出貨';
+    return `<div class="adm-shipday">
+      <div class="adm-shipday-row">
+        <button type="button" data-shipday="" aria-pressed="${!d}">全部</button>
+        <button type="button" data-shipday="today" aria-pressed="${d === 'today'}">今日出貨</button>
+        <label class="adm-shipday-date${d && d !== 'today' ? ' on' : ''}"><span>選日期</span><input type="date" id="shipday" value="${d && d !== 'today' ? d : ''}"></label>
+      </div>
+      <p>${label} <b>${n}</b> 筆<small>出貨日＝起日前 ${state.shipLead} 天，遇週日提前到週六</small></p>
+    </div>`;
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-shipday]');
+    if (!b) return;
+    state.shipDay = b.dataset.shipday;
+    render();
+  });
+  document.addEventListener('change', e => {
+    if (e.target.id !== 'shipday') return;
+    state.shipDay = e.target.value || '';
+    render();
+  });
 
   // ───────── 合併出貨 ─────────
   // 可以合併出貨＝姓名、電話、收件地址都一樣（後台 shipMany 也會再檢查一次）
@@ -306,6 +351,7 @@
       <h4 class="adm-sec-title">訂單資料</h4>
       <dl class="adm-info">
         <div><dt>租期</dt><dd>${pretty(o.startDate)} ～ ${pretty(o.endDate)}${o.period ? `<em class="slot">${esc(o.period)}</em>` : ''}${o.status === '已付款' && left !== null ? `<em class="${urgent ? 'warn' : ''}">${left > 0 ? `還有 ${left} 天` : left === 0 ? '今天起租' : `已過 ${-left} 天`}</em>` : ''}</dd></div>
+        ${o.status === '已付款' && o.startDate ? (sd => `<div><dt>出貨日</dt><dd>${pretty(sd)}${sd < today() ? '<em class="warn">已過出貨日</em>' : sd === today() ? '<em class="warn">今天要寄</em>' : ''}</dd></div>`)(shipDayOf(o)) : ''}
         <div><dt>衣服</dt><dd>${o.items.map(p => esc(itemName(p))).join('<br>')}</dd></div>
         ${o.addons && o.addons.length ? `<div><dt>加租配件</dt><dd class="adm-addons">${o.addons.map(a => `${esc(a.name)} <b>× ${a.qty}</b>${a.deposit ? `（押金 ${money(a.deposit * a.qty)}）` : ''}`).join('<br>')}<small>跟衣服一起寄出，歸還時記得點收</small></dd></div>` : ''}
         <div><dt>金額</dt><dd>${money(o.total)}<small>（租金 ${money(o.rentTotal)}${o.discount ? `－優惠 ${money(o.discount)}` : ''}${o.addonTotal ? `＋加租 ${money(o.addonTotal)}` : ''}＋押金 ${money(o.depositTotal)}${o.shipping ? `＋運費 ${money(o.shipping)}` : ''}${o.rushFee ? `＋加急費 ${money(o.rushFee)}` : ''}）</small></dd></div>
@@ -925,7 +971,7 @@
       }
     }
     demo.forEach(x => { x.paid = x.remit ? x.remit.amount : x.total; });
-    return { ok: true, name, orders: demo, extraMenu: ['髮帶', '髮圈', '頭紗', '鞋子'], bank: { bankName: '國泰世華', bankCode: '013', account: '0123-4567-8901', holder: '蒔光衣櫥' } };
+    return { ok: true, name, orders: demo, extraMenu: ['髮帶', '髮圈', '頭紗', '鞋子'], shipLeadDays: 2, bank: { bankName: '國泰世華', bankCode: '013', account: '0123-4567-8901', holder: '蒔光衣櫥' } };
   }
 
   // ───────── 啟動 ─────────
