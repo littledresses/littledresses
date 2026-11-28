@@ -32,6 +32,10 @@ body.admin { padding-bottom: env(safe-area-inset-bottom); }
 .adm-shipday-row > button[aria-pressed="true"], .adm-shipday-date.on { background: var(--rose-soft); border-color: var(--rose-deep); color: var(--rose-deep); }
 .adm-shipday-date { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px 2px 14px; }
 .adm-shipday-date input { border: 0; background: transparent; font: inherit; color: inherit; min-width: 0; }
+/* 出租中：通知順豐／收貨 切換鈕 */
+.adm-seg { display: inline-flex; padding: 3px; margin-bottom: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); }
+.adm-seg button { border: 0; background: transparent; color: var(--ink-soft); border-radius: 999px; padding: 6px 16px; font-size: 13px; min-height: 30px; }
+.adm-seg button[aria-pressed="true"] { background: var(--surface); color: var(--rose-deep); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .adm-shipday p { margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); }
 .adm-shipday p b { color: var(--rose-deep); }
 .adm-shipday p small { margin-left: 8px; color: var(--muted); }
@@ -157,3 +161,52 @@ details[open] > summary .adm-chev { transform: none; }
 /* 日期欄整格都可以點開日曆 */
 input[type="date"] { cursor: pointer; }
 input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
+
+/* 待出貨：出貨清單 */
+.adm-pack .adm-sec-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.adm-pack-count { font-size: 12px; font-weight: 500; color: var(--ink-soft); background: var(--surface-2); border-radius: 999px; padding: 2px 10px; letter-spacing: 0; }
+.adm-pack-count.ok { background: #e4f1e1; color: #3f6b3a; }
+.adm-pack ul { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.adm-pack li + li { border-top: 1px solid var(--line); }
+.adm-pack label { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 14px; cursor: pointer; }
+.adm-pack input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--rose-deep); flex-shrink: 0; margin: 0; }
+.adm-pack input:checked ~ .adm-pack-name { color: var(--muted); text-decoration: line-through; }
+.adm-pack-tag { flex-shrink: 0; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); }
+.adm-pack-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.adm-pack-qty { flex-shrink: 0; color: var(--rose-deep); }
+.adm-pack-img img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; display: block; background: var(--surface-2); }
+.adm-pack-note { margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); white-space: pre-wrap; }
+.adm-pack-note b { display: inline-block; margin-right: 8px; color: var(--muted); font-weight: 500; }
+.adm-pack-hint { margin: 2px 0 6px; display: inline-block; padding: 1px 8px; border-radius: 6px; background: #fdeee0; color: #9a5a2a; font-size: 12px; }
+.adm-info small.adm-checkin { display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 6px; background: #fdeee0; color: #9a5a2a; font-size: 12px; }
+
+/* 訂單明細（收合） */
+.adm-detail summary small { font-weight: 500; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+.adm-detail-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.adm-detail-table th, .adm-detail-table td { padding: 6px 10px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.adm-detail-table th:first-child, .adm-detail-table td:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.adm-detail-table th { background: var(--surface-2); color: var(--muted); font-weight: 500; font-size: 12px; }
+.adm-detail-table tbody tr + tr td { border-top: 1px solid var(--line); }
+.adm-detail-table tfoot td { background: var(--surface-2); font-weight: 600; }
+.adm-detail-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+.adm-detail-sum { margin: 8px 0 0; font-size: 13px; }
+.adm-detail-sum div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.adm-detail-sum dt { color: var(--ink-soft); }
+.adm-detail-sum dd { margin: 0; text-align: right; }
+.adm-detail-sum .total { border-top: 1px dashed var(--muted); margin-top: 4px; padding-top: 6px; font-weight: 600; }
+.adm-detail-sum .total dd { color: var(--rose-deep); }
+.adm-detail-sum b.warn { color: var(--danger); font-weight: 500; font-size: 12px; }
+.adm-detail-sum .adm-detail-track { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; align-items: center; }
+.adm-detail-sum .adm-detail-track .link-btn { padding: 2px 4px; font-size: 12px; }
+.adm-calc:empty { display: none; }
+
+/* 待退款：押金結算 */
+.adm-settle .adm-sec-title { display: flex; align-items: center; gap: 6px; }
+.adm-settle .adm-sec-title .adm-copy-settle { width: 28px; height: 28px; }
+.adm-settle dl { margin: 4px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; }
+.adm-settle dl div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; }
+.adm-settle dt { color: var(--ink-soft); min-width: 0; }
+.adm-settle dt small { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; white-space: pre-wrap; }
+.adm-settle dd { margin: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.adm-settle .total { border-top: 1px dashed var(--muted); margin-top: 4px; padding-top: 8px; font-weight: 600; }
+.adm-settle .total dd { color: var(--rose-deep); font-size: 16px; }

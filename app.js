@@ -691,7 +691,7 @@
     return `<dl class="summary">
       <div><dt>租借期間</dt><dd>${D.pretty(o.startDate)} ～ ${D.pretty(o.endDate)}${o.period ? `<br><span class="slot-tag">${esc(o.period)}</span>` : ''}</dd></div>
       ${o.items.map(p => `<div><dt>${esc(fullName(p))}${p.size ? `（${esc(p.size)}）` : ''}</dt><dd>${p.rent != null ? money(p.rent) : ''}</dd></div>`).join('')}
-      ${(o.addons || []).map(a => `<div><dt>加租 ${esc(a.name)} × ${a.qty}</dt><dd>${money(a.price * a.qty)}</dd></div>`).join('')}
+      ${units(o.addons || []).map(a => `<div><dt>加租 ${esc(a.name)}</dt><dd>${money(a.price)}</dd></div>`).join('')}
       ${o.discount ? `<div class="discount"><dt>優惠碼 ${esc(o.coupon)}</dt><dd>− ${money(o.discount)}</dd></div>` : ''}
       <div><dt>押金${o.addonDeposit ? '（含加租）' : ''}</dt><dd>${money(o.depositTotal)}</dd></div>
       ${o.shipping ? `<div><dt>順豐運費</dt><dd>${money(o.shipping)}</dd></div>` : ''}
@@ -948,6 +948,7 @@
     </article>`;
   }
 
+  const units = list => list.flatMap(a => Array.from({ length: a.qty || 1 }, () => a)); // 加租一件一件列（訂 2 個就列兩行）
   // 費用明細：每一項的租金、押金，再列優惠、運費、加急費和應付總額
   function feeHTML(o) {
     const items = o.items || [], addons = o.addons || [], extras = o.extras || [];
@@ -963,7 +964,7 @@
     const rows = perItem
       ? items.map(p => row(nm(p), p.rent, p.deposit))
       : [row(items.map(nm).join('<br>'), o.rentTotal, itemDep)];
-    addons.forEach(a => rows.push(row(`${esc(a.name)} × ${a.qty}`, a.price != null ? a.price * a.qty : null, a.deposit != null ? a.deposit * a.qty : null)));
+    units(addons).forEach(a => rows.push(row(esc(a.name), a.price, a.deposit)));
     extras.forEach(x => rows.push(row(`${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener"><img src="${esc(x.image)}" alt="" referrerpolicy="no-referrer" loading="lazy"></a>` : ''}${esc([x.category, x.note].filter(Boolean).join('・'))}`, x.rent, x.deposit)));
     const rentAll = o.rentTotal != null ? o.rentTotal + (o.addonTotal || 0) : null;
     const extra = [
